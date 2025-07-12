@@ -1,0 +1,8 @@
+# Web app files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+.env
+.venv
