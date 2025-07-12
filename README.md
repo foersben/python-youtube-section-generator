@@ -53,6 +53,9 @@ poetry run python src/main.py
 ```
 
 ### Web Interface
+
+<img width="1622" height="1418" alt="image" src="https://github.com/user-attachments/assets/9044ffc6-f3f3-431f-bd22-d599b30022e3" />
+
 Start the web server:
 ```bash
 poetry run python src/web_app.py
