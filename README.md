@@ -2,8 +2,6 @@
 
 Automatically generate YouTube-style section timestamps from video transcripts using AI.
 
-![Example Output](https://via.placeholder.com/800x400.png?text=YouTube+Section+Timestamps+Example)
-
 ## Features
 
 - 🎬 Extract YouTube transcripts (including auto-generated ones)
