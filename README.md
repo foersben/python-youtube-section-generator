@@ -54,7 +54,7 @@ poetry run python src/main.py
 
 ### Web Interface
 
-<img width="1622" height="1418" alt="image" src="https://github.com/user-attachments/assets/9044ffc6-f3f3-431f-bd22-d599b30022e3" />
+<img src="https://github.com/user-attachments/assets/c1894a46-7d6e-471e-8a6b-f24bf7279edc" alt="image" width="515" height="576" />
 
 Start the web server:
 ```bash
