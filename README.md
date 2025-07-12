@@ -1,6 +1,6 @@
 # YouTube Transcript to Section Timestamps
 
-Automatically generate YouTube-style section timestamps from video transcripts using AI.
+Automatically generate YouTube-style section timestamps from video transcripts using AI. Available as both a command-line tool and web application.
 
 ## Features
 
@@ -9,6 +9,8 @@ Automatically generate YouTube-style section timestamps from video transcripts u
 - ⏱️ Convert timestamps to YouTube-ready format
 - 🌐 Support for transcript translation
 - 📁 Save outputs as JSON and text files
+- 🌍 Web interface for easy browser access
+- 🧩 Modular architecture for easy maintenance
 
 ## Requirements
 
@@ -20,7 +22,7 @@ Automatically generate YouTube-style section timestamps from video transcripts u
 
 1. **Clone the repository:**
 ```bash
-git clone https://github.com/foersben/pythonyoutubetranscript.git
+git clone https://github.com/foersben/python-youtube-transcript.git
 cd pythonyoutubetranscript
 ```
 
@@ -34,8 +36,9 @@ poetry install
 echo "GOOGLE_API_KEY=your_api_key_here" > .env
 ```
 
-## Configuration
+## Usage
 
+### Command Line Interface (CLI)
 Edit `src/main.py` to configure:
 ```python
 # Configuration
@@ -44,14 +47,23 @@ TRANSCRIPT_FILE = "transcript.json"  # Transcript output file
 SECTIONS_FILE = "sections.json"    # Raw sections output file
 ```
 
-## Usage
-
-Run the script with Poetry:
+Run the script:
 ```bash
 poetry run python src/main.py
 ```
 
-### Output Files
+### Web Interface
+Start the web server:
+```bash
+poetry run python src/web_app.py
+```
+
+Then open in your browser:
+```
+http://localhost:5000
+```
+
+### Output Files (CLI)
 
 | File | Description |
 |------|-------------|
@@ -67,6 +79,7 @@ Modify the main function in `src/main.py` to:
 
 ## Example Workflow
 
+### CLI Example
 1. Get a YouTube video ID (e.g., from URL: `https://youtu.be/kXhCEyix180`)
 2. Update `VIDEO_ID` in `src/main.py`
 3. Run the script:
@@ -107,10 +120,16 @@ YouTube-ready Section Timestamps:
 YouTube-formatted sections saved to youtube_sections.txt
 ```
 
+### Web Interface Example
+1. Enter YouTube URL or video ID
+2. Adjust settings (optional)
+3. Click "Generate Sections"
+4. Copy or download results
+
 ## Advanced Usage
 
 ### Using Different AI Models
-Modify the model in `create_section_timestamps()`:
+Modify the model in `create_section_timestamps()` (in `src/core/sections.py`):
 ```python
 response = client.models.generate_content(
     model="gemini-1.5-pro",  # Alternative model
@@ -128,11 +147,49 @@ sections = create_section_timestamps(
 )
 ```
 
+## Project Structure (Updated)
+```
+.
+├── .env                   # Environment variables (not versioned)
+├── .gitignore             # Ignores virtualenv and output files
+├── LICENSE                # Project license
+├── poetry.lock            # Dependency lockfile
+├── pyproject.toml         # Poetry configuration
+├── README.md              # This file
+├── static/                # Web assets (CSS, JS)
+│   └── style.css
+├── src/
+│   ├── __init__.py        # Package initialization
+│   ├── main.py            # CLI application
+│   ├── web_app.py         # Web application
+│   ├── core/              # Core functionality
+│   │   ├── __init__.py
+│   │   ├── transcript.py  # Transcript handling
+│   │   ├── sections.py    # Section generation
+│   │   └── formatting.py  # Output formatting
+│   ├── templates/         # HTML templates
+│   │   └── index.html
+│   └── utils/             # Utility functions
+│       ├── __init__.py
+│       ├── file_io.py     # File operations
+│       └── json_utils.py  # JSON handling
+└── tests/                 # Unit tests (optional)
+```
+
+## Web Interface Features
+- 🖥️ Simple browser-based interface
+- 📱 Responsive design works on mobile devices
+- ⚙️ Adjustable settings for section generation
+- 📋 One-click copy to clipboard
+- 💾 Download section timestamps as text file
+- 🔄 Process multiple videos in one session
+
 ## Troubleshooting
 
 **Error: "GOOGLE_API_KEY not found"**
 - Verify `.env` file exists with valid API key
 - Ensure file is in project root directory
+- Restart application after changing .env
 
 **Error: "Failed to extract JSON from response"**
 - AI returned malformed response
@@ -142,19 +199,43 @@ sections = create_section_timestamps(
 **Error: Transcript not available**
 - Some videos don't have transcripts
 - Try a different video ID
+- Ensure video has captions enabled
 
-## Project Structure
+**Web interface not loading**
+- Ensure port 5000 is available
+- Check firewall settings
+- Verify all dependencies are installed (`poetry install`)
 
+## Deployment
+
+For production deployment of the web interface:
+
+*(only consider this, if you are completely nuts)*
+
+1. **Use a production WSGI server:**
+```bash
+poetry add gunicorn
+gunicorn -w 4 "src.web_app:app"
 ```
-.
-├── .env                   # Environment variables (not versioned)
-├── .gitignore             # Ignores virtualenv and output files
-├── poetry.lock            # Dependency lockfile
-├── pyproject.toml         # Poetry configuration
-├── README.md              # This file
-└── src/
-    ├── main.py            # Main application script
-    └── ...                # Other source files
+
+2. **Set environment variables:**
+```bash
+export FLASK_ENV=production
+export GOOGLE_API_KEY=your_key_here
+```
+
+3. **Use a reverse proxy (Nginx example):**
+```nginx
+server {
+    listen 80;
+    server_name yourdomain.com;
+
+    location / {
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
 ## Dependencies
@@ -163,6 +244,7 @@ sections = create_section_timestamps(
 - [youtube-transcript-api](https://pypi.org/project/youtube-transcript-api/) - Transcript extraction
 - [google-generativeai](https://pypi.org/project/google-generativeai/) - Gemini AI integration
 - [python-dotenv](https://pypi.org/project/python-dotenv/) - Environment management
+- [Flask](https://flask.palletsprojects.com/) - Web application framework
 
 ## Contributing
 
@@ -176,58 +258,3 @@ sections = create_section_timestamps(
 
 MIT License - see [LICENSE](LICENSE) for details
 ```
-
-## Important Setup Notes
-
-1. Create a `.gitignore` file with:
-```gitignore
-# .gitignore
-.venv/
-.env
-*.json
-*.txt
-__pycache__/
-```
-
-2. Add a LICENSE file (e.g., MIT License)
-
-3. Recommended project structure:
-```
-pythonyoutubetranscript/
-├── .env
-├── .gitignore
-├── LICENSE
-├── poetry.lock
-├── pyproject.toml
-├── README.md
-└── src/
-    ├── __init__.py
-    └── main.py
-```
-
-4. For first-time Poetry users:
-```bash
-# Install Poetry
-curl -sSL https://install.python-poetry.org | python3 -
-
-# Initialize virtual environment
-poetry shell
-
-# Install dependencies
-poetry install
-```
-
-This README provides:
-- Clear installation instructions
-- Usage examples
-- Configuration guidance
-- Troubleshooting tips
-- Project structure overview
-- Contribution guidelines
-- License information
-
-The setup ensures:
-- API keys stay secure (not committed to Git)
-- Virtual environments are self-contained
-- Output files are automatically ignored
-- Dependencies are explicitly managed

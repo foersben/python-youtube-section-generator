@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Section Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>YouTube Section Generator</h1>
+            <p>Automatically create timestamped sections for YouTube videos</p>
+        </header>
+        
+        <main>
+            <div class="input-section">
+                <div class="form-group">
+                    <label for="video_id">YouTube Video ID or URL:</label>
+                    <input type="text" id="video_id" placeholder="e.g., kXhCEyix180" required>
+                    <small>Enter the video ID (11 characters) or full URL</small>
+                </div>
+                
+                <div class="settings">
+                    <div class="form-group">
+                        <label for="translate_to">Translate to:</label>
+                        <input type="text" id="translate_to" placeholder="e.g., en">
+                        <small>Leave blank for original language</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Section Settings:</label>
+                        <div class="range-group">
+                            <div>
+                                <label for="min_sections">Min Sections:</label>
+                                <input type="number" id="min_sections" min="3" max="30" value="10">
+                            </div>
+                            <div>
+                                <label for="max_sections">Max Sections:</label>
+                                <input type="number" id="max_sections" min="5" max="50" value="15">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Title Settings:</label>
+                        <div class="range-group">
+                            <div>
+                                <label for="min_title_words">Min Words:</label>
+                                <input type="number" id="min_title_words" min="2" max="10" value="3">
+                            </div>
+                            <div>
+                                <label for="max_title_words">Max Words:</label>
+                                <input type="number" id="max_title_words" min="3" max="15" value="6">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <button id="generate-btn">Generate Sections</button>
+            </div>
+            
+            <div class="result-section hidden">
+                <h2>Generated Sections for: <span id="result-video-id"></span></h2>
+                <div class="result-container">
+                    <pre id="section-output"></pre>
+                </div>
+                <div class="actions">
+                    <button id="copy-btn">Copy to Clipboard</button>
+                    <button id="download-btn">Download as TXT</button>
+                    <button id="new-video-btn">Process Another Video</button>
+                </div>
+            </div>
+            
+            <div class="loading hidden">
+                <div class="spinner"></div>
+                <p>Generating sections...</p>
+            </div>
+            
+            <div class="error hidden">
+                <p>❌ <span id="error-message"></span></p>
+            </div>
+        </main>
+        
+        <footer>
+            <p>Powered by Google Gemini AI | Python YouTube Transcript Tool</p>
+        </footer>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const videoIdInput = document.getElementById('video_id');
+            const generateBtn = document.getElementById('generate-btn');
+            const resultSection = document.querySelector('.result-section');
+            const loadingSection = document.querySelector('.loading');
+            const errorSection = document.querySelector('.error');
+            const sectionOutput = document.getElementById('section-output');
+            const copyBtn = document.getElementById('copy-btn');
+            const downloadBtn = document.getElementById('download-btn');
+            const newVideoBtn = document.getElementById('new-video-btn');
+            const resultVideoId = document.getElementById('result-video-id');
+            const errorMessage = document.getElementById('error-message');
+            
+            // Extract YouTube video ID from various URL formats
+            function extractVideoId(url) {
+                const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                const match = url.match(regExp);
+                return (match && match[2].length === 11) ? match[2] : url;
+            }
+            
+            generateBtn.addEventListener('click', async () => {
+                let videoId = videoIdInput.value.trim();
+                if (!videoId) {
+                    showError('Please enter a YouTube video ID or URL');
+                    return;
+                }
+                
+                // Extract ID from URL if needed
+                videoId = extractVideoId(videoId);
+                
+                // Show loading state
+                loadingSection.classList.remove('hidden');
+                errorSection.classList.add('hidden');
+                
+                try {
+                    const response = await fetch('/generate-sections', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: new URLSearchParams({
+                            'video_id': videoId,
+                            'translate_to': document.getElementById('translate_to').value,
+                            'min_sections': document.getElementById('min_sections').value,
+                            'max_sections': document.getElementById('max_sections').value,
+                            'min_title_words': document.getElementById('min_title_words').value,
+                            'max_title_words': document.getElementById('max_title_words').value
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        sectionOutput.textContent = data.sections;
+                        resultVideoId.textContent = data.video_id;
+                        resultSection.classList.remove('hidden');
+                    } else {
+                        showError(data.error);
+                    }
+                } catch (error) {
+                    showError('An unexpected error occurred: ' + error.message);
+                } finally {
+                    loadingSection.classList.add('hidden');
+                }
+            });
+            
+            copyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(sectionOutput.textContent)
+                    .then(() => {
+                        alert('Sections copied to clipboard!');
+                    })
+                    .catch(err => {
+                        showError('Failed to copy: ' + err);
+                    });
+            });
+            
+            downloadBtn.addEventListener('click', async () => {
+                const formData = new FormData();
+                formData.append('sections', sectionOutput.textContent);
+                formData.append('video_id', resultVideoId.textContent);
+                
+                try {
+                    const response = await fetch('/download-sections', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `${resultVideoId.textContent}_sections.txt`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                    } else {
+                        const error = await response.text();
+                        showError('Download failed: ' + error);
+                    }
+                } catch (error) {
+                    showError('Download error: ' + error.message);
+                }
+            });
+            
+            newVideoBtn.addEventListener('click', () => {
+                resultSection.classList.add('hidden');
+                videoIdInput.value = '';
+                videoIdInput.focus();
+            });
+            
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorSection.classList.remove('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
