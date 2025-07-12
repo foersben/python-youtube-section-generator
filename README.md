@@ -75,7 +75,7 @@ Fetching transcript...
 
 Transcript Details:
 - Video ID: kXhCEyix180
-- Language: English (en)
+- Language: German (auto-generated) (de)
 - Generated: Yes
 Transcript saved to transcript.json
 
@@ -84,11 +84,25 @@ Section timestamps saved to sections.json
 
 YouTube-ready Section Timestamps:
 
-1. 00:00 Introduction to AI
-2. 01:25 Machine Learning Basics
-3. 04:10 Deep Learning Explained
-4. 07:45 Real-world Applications
-5. 12:30 Future Predictions
+1. 00:33 Willkommen: Das Thema Freiheit
+2. 01:47 Projekt: Grundrechte und Justiz
+3. 03:20 Aktualität, Aufzeichnung, Feedback
+4. 03:48 Große Brocken: Freiheit, Gleichheit, Eigentum
+5. 07:35 Kritik an Freiheit als Höchstwert
+6. 08:45 Anekdote: Freiheit oder Sklaverei?
+7. 13:20 Artikel 2 GG: Allgemeine Freiheit
+8. 19:09 Analyse: Freie Entfaltung der Persönlichkeit
+9. 22:12 Freiheit, Grenzen und Konflikte
+10. 35:19 Elfes-Urteil: Staatliche Kontrolle der Freiheit
+11. 45:52 Abwehrrecht: Illusorisch gegen Staat
+12. 55:55 Reiten im Walde: Freiheitskollisionen
+13. 62:30 Freiheit: Rücksichtslosigkeit und Konflikte
+14. 84:15 Recht auf Leben und Körper
+15. 98:55 Fluglärm-Urteil: Zumutbarer Körperschaden
+16. 118:26 Fazit: Freiheit als Staatsinstrument
+17. 121:55 Ideologische Darstellung von Freiheit
+18. 140:00 Freiheit und Pandemie-Maßnahmen
+19. 154:41 Nächste Themen & Support
 
 YouTube-formatted sections saved to youtube_sections.txt
 ```
