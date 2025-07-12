@@ -78,12 +78,10 @@ def extract_transcript(
     """
 
     try:
-        # Get available transcripts
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
         transcript = [line.fetch() for line in transcript_list][0]
 
-        # Print transcript metadata
         print(f"\nTranscript Details:")
         print(f"- Video ID: {transcript.video_id}")
         print(f"- Language: {transcript.language} ({transcript.language_code})")
@@ -91,7 +89,6 @@ def extract_transcript(
 
         transcript = transcript.to_raw_data()
 
-        # Save to file if requested
         if output_file:
             write_to_file(transcript, output_file)
             print(f"Transcript saved to {output_file}")
@@ -135,7 +132,6 @@ def create_section_timestamps(
 
         client = genai.Client(api_key=api_key)
 
-        # Generate section timestamps
         prompt = (
             "Create YouTube-style chapter markers from this transcript. "
             "Return ONLY valid JSON with this structure: "
@@ -163,7 +159,6 @@ def create_section_timestamps(
         if not all(("start" in sec and "title" in sec) for sec in sections):
             raise ValueError("Invalid section format in AI response")
 
-        # Save to file if requested
         if output_file:
             write_to_file(sections, output_file)
             print(f"Section timestamps saved to {output_file}")
@@ -199,13 +194,11 @@ def format_sections_for_youtube(sections: list[dict[str, Any]]) -> str:
 
 
 if __name__ == "__main__":
-    # Configuration
     VIDEO_ID = "kXhCEyix180"  # "G63yfp-owY8"  # Replace with your video ID
     TRANSCRIPT_FILE = "transcript.json"
     SECTIONS_FILE = "sections.json"
 
     try:
-        # Step 1: Get transcript
         print("Fetching transcript...")
         transcript = extract_transcript(
             video_id=VIDEO_ID,
@@ -213,18 +206,15 @@ if __name__ == "__main__":
             # translate_to="en",  # Remove for original language
         )
 
-        # Step 2: Generate section timestamps
         print("\nGenerating section timestamps...")
         sections = create_section_timestamps(
             transcript=transcript, output_file=SECTIONS_FILE
         )
 
-        # Step 3: Format for YouTube
         print("\nYouTube-ready Section Timestamps:")
         youtube_format = format_sections_for_youtube(sections)
         print("\n" + youtube_format)
 
-        # Save YouTube-formatted output
         with open("youtube_sections.txt", "w") as f:
             f.write(youtube_format)
         print("\nYouTube-formatted sections saved to youtube_sections.txt")
