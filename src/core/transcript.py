@@ -41,12 +41,12 @@ def extract_transcript(
     """
 
     try:
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        transcript_list = YouTubeTranscriptApi().list(video_id)
         transcripts = list(transcript_list)
 
         # Find the first manually created transcript, or fallback to generated
         transcript = next(
-            (t for t in transcripts if not t.is_generated),
+            (snippet for snippet in transcripts if not snippet.is_generated),
             transcripts[0],  # First transcript if no manually created found
         )
         # transcript = [line.fetch() for line in transcript_list][0]
