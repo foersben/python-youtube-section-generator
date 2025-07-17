@@ -5,7 +5,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 
 def _convert_transcript_to_dict(transcript_data) -> list[dict[str, Any]]:
-    """Converts transcript data to a serializable list of dictionaries.
+    """Converts transcript data to a serialisable list of dictionaries.
 
     Args:
         transcript_data: Raw transcript data from YouTubeTranscriptApi
@@ -91,7 +91,6 @@ def extract_video_id(url: str) -> str:
 
     Raises
         ValueError: in case an invalid ID or YouTube URL was passed.
-
     """
 
     patterns = [

@@ -63,7 +63,7 @@ def generate_sections() -> jsonify:
 
         # Get transcript
         transcript_data = transcript.extract_transcript(
-            video_id=video_id, translate_to=translate_to if translate_to else None
+            video_id=video_id, translate_to=translate_to if translate_to else None, output_file="./transcript.json"
         )
 
         # Generate sections

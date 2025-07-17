@@ -1,8 +1,13 @@
 import os
 from google import genai
+from google.genai import types
 from typing import Any
 from src.utils import file_io, json_utils
+import time
 
+# MODEL="gemini-2.0-flash-lite-001" # best model that allows to cache context (for free)
+# MODEL="gemini-1.5-flash-002" # best model that allows to cache context (for free)
+MODEL="gemini-2.5-flash"
 
 def create_section_timestamps(
     transcript: list[dict[str, Any]],
@@ -36,6 +41,23 @@ def create_section_timestamps(
 
         client = genai.Client(api_key=api_key)
 
+        models = client.models.list()
+        for model in models:
+            print(f"Model Name: {model.name}")
+            print("Supported Methods:")
+            for action in model.supported_actions:
+                print(f" - {action}")
+            print()  # Print a newline for better readability
+
+        # Create a cached content object
+        cache = client.caches.create(
+            model=MODEL,
+            config=types.CreateCachedContentConfig(
+                system_instruction="Remember to each exact timestamp the text to summaries to section titles.",
+                contents=[formatted_transcript],
+            )
+        )
+
         prompt = (
             "Create YouTube-style chapter markers from this transcript. "
             "Return ONLY valid JSON with this structure: "
@@ -43,20 +65,47 @@ def create_section_timestamps(
             "Rules:\n"
             f"1. Create {section_count_range[0]}-{section_count_range[1]} sections\n"
             "2. Start time in seconds (float)\n"
-            f"3. {title_length_range[0]}-{title_length_range[1]} word titles\n"
-            "4. Capture key topics\n"
-            "5. Output ONLY the JSON array\n"
-            "6. In the language of the script\n\n"
-            f"Transcript:\n{formatted_transcript}"
+            "3. Always take the whole transcript and its timestamps into account\n"
+            f"4. {title_length_range[0]}-{title_length_range[1]} word titles\n"
+            "5. Capture key topics\n"
+            "6. Output ONLY the JSON array\n"
+            "7. In the language of the transcript.\n\n"
+            # f"Transcript:\n{formatted_transcript}"
         )
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            # config=types.GenerateContentConfig(
-            #     thinking_config=types.ThinkingConfig(thinking_budget=0) # Disables thinking
-            # ),
-        )
+        retry_delay = 5  # seconds – initial wait
+        max_delay = 60   # cap so we don't wait forever between tries
+
+        while True:
+            try:
+                response = client.models.generate_content(
+                    model=MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        cached_content=cache.name,
+                        # thinking_config=types.ThinkingConfig(thinking_budget=0) # Disables thinking
+                        temperature=0.0,  # Adjust for creativity vs accuracy
+                    )
+                )
+                break
+
+            except Exception as err:
+                # detect the "model is overloaded" case
+                error_txt = str(err).lower()
+                is_503 = ("503" in error_txt) and ("unavailable" in error_txt)
+
+                if not is_503:
+                    # Some other exception – re-raise immediately
+                    raise
+
+                # Otherwise, log and wait before the next attempt
+                print(
+                    f"Model overloaded (503). Retrying in {retry_delay}s …",
+                    flush=True,
+                )
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_delay)
+
         sections = json_utils.extract_json(response.text.strip())
 
         # Validate sections format
