@@ -1,13 +1,10 @@
 from typing import Any
-from flask import Flask, render_template, request, jsonify, send_file
 from dotenv import load_dotenv
 from src.core import transcript, sections, formatting
 import tempfile
-
-# Load environment variables
-# load_dotenv()
-import sys
+import sys, os
 from pathlib import Path
+from flask import Flask, render_template, request, jsonify, send_file
 
 def _load_dotenv_next_to_executable() -> None:
     """ Loads a dotenv file named ".env" located next to the executable if the script is being run as a frozen executable. Otherwise, it will attempt to locate the ".env" file two directories above the current script file. If found, the environment variables defined in the file will be loaded into the system.
@@ -20,11 +17,18 @@ def _load_dotenv_next_to_executable() -> None:
 
     env_file = base_dir / ".env"
     if env_file.is_file():
-       load_dotenv(env_file)
+       load_dotenv(env_file, override=False)
 
 _load_dotenv_next_to_executable()
 
-app = Flask(__name__)
+# app = Flask(__name__)
+
+if getattr(sys, "frozen", False):
+    base = Path(sys.executable).parent
+else:
+    base = Path(__file__).resolve().parent.parent
+
+app = Flask(__name__, template_folder=str(base / "templates"), static_folder=str(base / "static"))
 
 
 @app.route("/")
