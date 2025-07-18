@@ -5,7 +5,24 @@ from src.core import transcript, sections, formatting
 import tempfile
 
 # Load environment variables
-load_dotenv()
+# load_dotenv()
+import sys
+from pathlib import Path
+
+def _load_dotenv_next_to_executable() -> None:
+    """ Loads a dotenv file named ".env" located next to the executable if the script is being run as a frozen executable. Otherwise, it will attempt to locate the ".env" file two directories above the current script file. If found, the environment variables defined in the file will be loaded into the system.
+    """
+
+    if getattr(sys, "frozen", False):
+           base_dir = Path(sys.executable).parent
+    else:
+        base_dir = Path(__file__).resolve().parent.parent
+
+    env_file = base_dir / ".env"
+    if env_file.is_file():
+       load_dotenv(env_file)
+
+_load_dotenv_next_to_executable()
 
 app = Flask(__name__)
 
