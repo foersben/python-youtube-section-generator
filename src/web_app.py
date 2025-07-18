@@ -11,22 +11,31 @@ def _load_dotenv_next_to_executable() -> None:
     """
 
     if getattr(sys, "frozen", False):
-           base_dir = Path(sys.executable).parent
+        base_dir = Path(sys.executable).parent
     else:
+        # Running from source: project root (one level above src)
         base_dir = Path(__file__).resolve().parent.parent
 
-    env_file = base_dir / ".env"
-    if env_file.is_file():
-       load_dotenv(env_file, override=False)
+    env_path = base_dir / ".env"
+    if env_path.is_file():
+        load_dotenv(env_path, override=False)
 
 _load_dotenv_next_to_executable()
 
 if getattr(sys, "frozen", False):
     base = Path(sys._MEIPASS)
+    tmpl_folder = base / "templates"
+    static_folder = base / "static"
 else:
     base = Path(__file__).resolve().parent.parent
+    tmpl_folder = base / "src" / "templates"
+    static_folder = base / "static"
 
-app = Flask(__name__, template_folder=str(base / "src" / "templates"), static_folder=str(base / "static"))
+app = Flask(
+    __name__,
+    template_folder=str(tmpl_folder),
+    static_folder=str(static_folder),
+)
 
 
 @app.route("/")
@@ -36,6 +45,7 @@ def index() -> str:
     Returns:
         Rendered HTML template for the main page
     """
+
     return render_template("index.html")
 
 
