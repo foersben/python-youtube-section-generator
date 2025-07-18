@@ -1,7 +1,7 @@
 from typing import Any
 from flask import Flask, render_template, request, jsonify, send_file
 from dotenv import load_dotenv
-from core import transcript, sections, formatting
+from src.core import transcript, sections, formatting
 import tempfile
 
 # Load environment variables
