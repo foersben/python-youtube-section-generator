@@ -13,7 +13,7 @@ def _load_dotenv_next_to_executable() -> None:
     if getattr(sys, "frozen", False):
            base_dir = Path(sys.executable).parent
     else:
-        base_dir = Path(__file__).resolve().parent.parent
+        base_dir = Path(__file__).resolve().parent
 
     env_file = base_dir / ".env"
     if env_file.is_file():
@@ -21,12 +21,10 @@ def _load_dotenv_next_to_executable() -> None:
 
 _load_dotenv_next_to_executable()
 
-# app = Flask(__name__)
-
 if getattr(sys, "frozen", False):
-    base = Path(sys.executable).parent
+    base = Path(sys._MEIPASS)
 else:
-    base = Path(__file__).resolve().parent.parent
+    base = Path(__file__).resolve().parent
 
 app = Flask(__name__, template_folder=str(base / "templates"), static_folder=str(base / "static"))
 
