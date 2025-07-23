@@ -2,7 +2,7 @@ from typing import Any
 from dotenv import load_dotenv
 from src.core import transcript, sections, formatting
 import tempfile
-import sys, os
+import sys
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_file
 

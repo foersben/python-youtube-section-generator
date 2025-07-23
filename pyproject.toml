@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
-python = "<3.13,>=3.9"
+python = "<3.14,>=3.11"
 youtube-transcript-api = "^1.1.1"
 google-genai = "^1.25.0"
 python-dotenv = "^1.1.1"
