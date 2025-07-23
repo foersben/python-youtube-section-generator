@@ -14,7 +14,7 @@ Automatically generate YouTube-style section timestamps from video transcripts u
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.11+
 - Poetry (for dependency management)
 - Google API Key (for Gemini AI)
 
