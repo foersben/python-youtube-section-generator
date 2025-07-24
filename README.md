@@ -10,7 +10,6 @@ Automatically generate YouTube-style section timestamps from video transcripts u
 - 🌐 Support for transcript translation
 - 📁 Save outputs as JSON and text files
 - 🌍 Web interface for easy browser access
-- 🧩 Modular architecture for easy maintenance
 
 ## Requirements
 
@@ -128,56 +127,6 @@ YouTube-formatted sections saved to youtube_sections.txt
 2. Adjust settings (optional)
 3. Click "Generate Sections"
 4. Copy or download results
-
-## Advanced Usage
-
-### Using Different AI Models
-Modify the model in `create_section_timestamps()` (in `src/core/sections.py`):
-```python
-response = client.models.generate_content(
-    model="gemini-1.5-pro",  # Alternative model
-    # ...
-)
-```
-
-### Handling Long Videos
-For videos >30 minutes:
-```python
-sections = create_section_timestamps(
-    transcript=transcript,
-    section_count_range=(20, 30),  # More sections for long videos
-    title_length_range=(5, 8)      # Longer titles
-)
-```
-
-## Project Structure (Updated)
-```
-.
-├── .env                   # Environment variables (not versioned)
-├── .gitignore             # Ignores virtualenv and output files
-├── LICENSE                # Project license
-├── poetry.lock            # Dependency lockfile
-├── pyproject.toml         # Poetry configuration
-├── README.md              # This file
-├── static/                # Web assets (CSS, JS)
-│   └── style.css
-├── src/
-│   ├── __init__.py        # Package initialization
-│   ├── main.py            # CLI application
-│   ├── web_app.py         # Web application
-│   ├── core/              # Core functionality
-│   │   ├── __init__.py
-│   │   ├── transcript.py  # Transcript handling
-│   │   ├── sections.py    # Section generation
-│   │   └── formatting.py  # Output formatting
-│   ├── templates/         # HTML templates
-│   │   └── index.html
-│   └── utils/             # Utility functions
-│       ├── __init__.py
-│       ├── file_io.py     # File operations
-│       └── json_utils.py  # JSON handling
-└── tests/                 # Unit tests (optional)
-```
 
 ## Web Interface Features
 - 🖥️ Simple browser-based interface
