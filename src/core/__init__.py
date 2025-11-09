@@ -1,17 +1,10 @@
-from src.core.transcript import (
-    extract_transcript,
-    extract_video_id,
-)
-from src.core.sections import create_section_timestamps
-from src.core.formatting import (
-    format_sections_for_youtube,
-    format_transcript_for_display,
-)
+"""src.core package (lightweight).
 
-__all__ = [
-    "extract_video_id",
-    "extract_transcript",
-    "create_section_timestamps",
-    "format_sections_for_youtube",
-    "format_transcript_for_display",
-]
+This file intentionally avoids importing submodules at package import time
+so that unit tests and tools can import `src.core` without triggering
+heavy imports. Import submodules explicitly where needed.
+"""
+
+from __future__ import annotations
+
+__all__ = []

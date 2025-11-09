@@ -101,28 +101,50 @@
             const newVideoBtn = document.getElementById('new-video-btn');
             const resultVideoId = document.getElementById('result-video-id');
             const errorMessage = document.getElementById('error-message');
-            
+
             // Extract YouTube video ID from various URL formats
             function extractVideoId(url) {
                 const regExp = /^.*(youtu\.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
                 const match = url.match(regExp);
                 return (match && match[2].length === 11) ? match[2] : url;
             }
-            
+
+            // Format seconds -> H:MM:SS or MM:SS
+            function formatTimestamp(seconds) {
+                if (typeof seconds !== 'number' && typeof seconds !== 'string') return '' + seconds;
+                const s = Math.floor(Number(seconds) || 0);
+                const hrs = Math.floor(s / 3600);
+                const mins = Math.floor((s % 3600) / 60);
+                const secs = s % 60;
+                const pad = (n) => n.toString().padStart(2, '0');
+                if (hrs > 0) return `${hrs}:${pad(mins)}:${pad(secs)}`;
+                return `${pad(mins)}:${pad(secs)}`;
+            }
+
+            // Format sections array into readable numbered list
+            function formatSections(sections) {
+                if (!Array.isArray(sections)) return String(sections);
+                return sections.map((sec, i) => {
+                    const title = sec.title || sec.text || 'Section';
+                    const start = (sec.start != null) ? formatTimestamp(sec.start) : '';
+                    return `${i + 1}. ${start} ${title}`.trim();
+                }).join('\n');
+            }
+
             generateBtn.addEventListener('click', async () => {
                 let videoId = videoIdInput.value.trim();
                 if (!videoId) {
                     showError('Please enter a YouTube video ID or URL');
                     return;
                 }
-                
+
                 // Extract ID from URL if needed
                 videoId = extractVideoId(videoId);
-                
+
                 // Show loading state
                 loadingSection.classList.remove('hidden');
                 errorSection.classList.add('hidden');
-                
+
                 try {
                     const response = await fetch('/generate-sections', {
                         method: 'POST',
@@ -138,18 +160,20 @@
                             'max_title_words': document.getElementById('max_title_words').value
                         })
                     });
-                    
+
                     const data = await response.json();
-                    
+
                     if (data.success) {
-                        sectionOutput.textContent = data.sections;
-                        resultVideoId.textContent = data.video_id;
+                        // Prefer the server-provided preformatted text when available
+                        const out = data.sections_text ?? formatSections(data.sections);
+                        sectionOutput.textContent = out;
+                        resultVideoId.textContent = data.video_id || videoId;
                         resultSection.classList.remove('hidden');
                     } else {
-                        showError(data.error);
+                        showError(data.error || 'Unknown error');
                     }
                 } catch (error) {
-                    showError('An unexpected error occurred: ' + error.message);
+                    showError('An unexpected error occurred: ' + (error && error.message ? error.message : String(error)));
                 } finally {
                     loadingSection.classList.add('hidden');
                 }
@@ -190,7 +214,7 @@
                         showError('Download failed: ' + error);
                     }
                 } catch (error) {
-                    showError('Download error: ' + error.message);
+                    showError('Download error: ' + (error && error.message ? error.message : String(error)));
                 }
             });
             
