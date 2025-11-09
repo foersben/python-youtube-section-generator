@@ -1,10 +1,8 @@
 import json
-from typing import Union, Any, List, Dict
+from typing import Any
 
 
-def write_to_file(
-    content: Union[List[Dict[str, Any]], Dict[str, Any], str], filepath: str
-) -> None:
+def write_to_file(content: list[dict[str, Any]] | dict[str, Any] | str, filepath: str) -> None:
     """Writes content to a file in appropriate format.
 
     Args:
@@ -25,4 +23,4 @@ def write_to_file(
             else:
                 raise TypeError(f"Unsupported content type: {type(content)}")
     except Exception as e:
-        raise IOError(f"Failed to write to file {filepath}: {str(e)}")
+        raise OSError(f"Failed to write to file {filepath}: {str(e)}") from e

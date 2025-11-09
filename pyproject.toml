@@ -1,22 +1,107 @@
 [tool.poetry]
 name = "pythonyoutubetranscript"
 version = "0.1.0"
-description = ""
+description = "AI-powered YouTube transcript section generator with timestamp creation using Google Gemini"
 authors = ["foerster_work <foerster.work@gmail.com>"]
 readme = "README.md"
+license = "MIT"
+keywords = ["youtube", "transcript", "ai", "gemini", "sections", "timestamps"]
 packages = [{ include = "src" }]
 
 [tool.poetry.dependencies]
-python = "<3.14,>=3.11"
+python = ">=3.11,<3.14"
+
+# Core YouTube & AI dependencies
 youtube-transcript-api = "^1.1.1"
 google-genai = "^1.25.0"
-python-dotenv = "^1.1.1"
+
+# Web framework
 flask = "^3.1.1"
 
-[settings]
-[settings.virtualenvs]
-in-project = true
+# Utilities
+python-dotenv = "^1.1.1"
+langdetect = "^1.0.9"
+httpx = "^0.28.1"
+psutil = "^6.1.0"  # System and process monitoring
+
+# Translation
+deepl = "^1.12.0"
+
+# Local LLM - CPU-only inference with llama.cpp
+llama-cpp-python = "^0.3.2"  # CPU-optimized, small memory footprint
+
+# RAG (Retrieval Augmented Generation) for long videos
+langchain = "^0.3.0"  # LLM framework
+langchain-community = "^0.3.0"  # Community integrations
+# chromadb REMOVED - install via pip (prevents GPU torch pollution)
+# sentence-transformers REMOVED - install via pip (prevents GPU torch pollution)
+
+# NOTE: For CPU-only setup, install these via pip AFTER poetry install:
+# poetry run pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# poetry run pip install sentence-transformers chromadb
+# This prevents Poetry from pulling GPU-inclusive torch from PyPI.
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^7.0"
+pytest-cov = "^4.0"
+pytest-mock = "^3.10"
+
+# Code quality
+black = ">=23.0,<25.0"
+ruff = ">=0.1.0"
+mypy = "^1.0"
+
+# Type stubs (optional)
+types-requests = {version = "^2.31.0", optional = true}
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line too long (handled by black)
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]

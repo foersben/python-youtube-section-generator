@@ -1,14 +1,31 @@
-from typing import Any
-from dotenv import load_dotenv
-from src.core import transcript, sections, formatting
-import tempfile
 import sys
+import tempfile
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_file
+from typing import Any
+
+from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request, send_file, Response, after_this_request
+
+# Import refactored modules
+from src.core import formatting
+from src.core.transcript import extract_transcript, extract_video_id
+from src.core.services.section_generation import SectionGenerationService
+from src.core.models.models import SectionGenerationConfig, Section
+from src.utils.logging_config import get_logger
+
+# Set up centralized logging
+from src.utils.logging_config import setup_logging
+setup_logging(
+    level="INFO",
+    log_file="logs/web_app.log" if not getattr(sys, "frozen", False) else None,
+    colored=True
+)
+
+logger = get_logger(__name__)
+
 
 def _load_dotenv_next_to_executable() -> None:
-    """ Loads a dotenv file named ".env" located next to the executable if the script is being run as a frozen executable. Otherwise, it will attempt to locate the ".env" file two directories above the current script file. If found, the environment variables defined in the file will be loaded into the system.
-    """
+    """Loads a dotenv file named ".env" located next to the executable if the script is being run as a frozen executable. Otherwise, it will attempt to locate the ".env" file two directories above the current script file. If found, the environment variables defined in the file will be loaded into the system."""
 
     if getattr(sys, "frozen", False):
         base_dir = Path(sys.executable).parent
@@ -19,6 +36,7 @@ def _load_dotenv_next_to_executable() -> None:
     env_path = base_dir / ".env"
     if env_path.is_file():
         load_dotenv(env_path, override=False)
+
 
 _load_dotenv_next_to_executable()
 
@@ -39,23 +57,29 @@ app = Flask(
 
 
 @app.route("/")
-def index() -> str:
+def index() -> Response:
     """Renders the main application interface.
 
     Returns:
-        Rendered HTML template for the main page
+        Flask Response with the rendered index template and cache-control
+        headers to force browsers to fetch the latest client-side script.
     """
-
-    return render_template("index.html")
+    html = render_template("index.html")
+    resp = Response(html)
+    # Prevent caching so client always receives updated JS after edits
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/generate-sections", methods=["POST"])
-def generate_sections() -> jsonify:
+def generate_sections() -> Response:
     """Generates YouTube-style section timestamps from a video transcript.
 
     Processes POST request with video ID and parameters, then:
     1. Extracts the transcript
-    2. Generates section timestamps using AI
+    2. Generates section timestamps using AI (via SectionGenerationService)
     3. Formats sections for YouTube
 
     Request Form Parameters:
@@ -79,37 +103,173 @@ def generate_sections() -> jsonify:
     """
 
     try:
-        video_id = transcript.extract_video_id(request.form["video_id"])
+        # Video ID or URL is optional when providing raw transcript_json
+        video_url = request.form.get("video_id", "")
+        logger.info(f"Received request for video URL: {video_url}")
+
+        # Parse raw transcript if provided (we'll compute a synthetic video_id)
+        raw_transcript_json = request.form.get("transcript_json")
+        if raw_transcript_json:
+            import json, hashlib
+
+            try:
+                parsed_temp = json.loads(raw_transcript_json)
+            except Exception as e:
+                logger.error("Invalid transcript_json provided: %s", e)
+                return jsonify({"success": False, "error": "Invalid transcript_json"}), 400
+
+            # Compute a stable id based on the transcript text snippet
+            concat = "".join(seg.get("text", "") for seg in parsed_temp[:100])
+            video_id = hashlib.md5(concat.encode("utf-8")).hexdigest()[:12]
+            logger.info(f"Using synthetic video_id: {video_id} for uploaded transcript")
+            transcript_data = parsed_temp
+        else:
+            if not video_url:
+                return jsonify({"success": False, "error": "Missing video_id or transcript_json"}), 400
+            try:
+                video_id = extract_video_id(video_url)
+                logger.info(f"Extracted Video ID: {video_id}")
+            except Exception as e:
+                logger.error("Failed to extract video id: %s", e)
+                return jsonify({"success": False, "error": "Invalid YouTube URL or ID"}), 400
+
         translate_to = request.form.get("translate_to", "")
-        section_count_range = (
-            int(request.form.get("min_sections", 10)),
-            int(request.form.get("max_sections", 15)),
-        )
-        title_length_range = (
-            int(request.form.get("min_title_words", 3)),
-            int(request.form.get("max_title_words", 6)),
+        # Support providing a raw transcript JSON for testing or upload
+        raw_transcript_json = request.form.get("transcript_json")
+
+        # Parse section generation parameters
+        min_sections = int(request.form.get("min_sections", 10))
+        max_sections = int(request.form.get("max_sections", 15))
+        min_title_words = int(request.form.get("min_title_words", 3))
+        max_title_words = int(request.form.get("max_title_words", 6))
+
+        # Get transcript: allow raw JSON (testing) or fetch from YouTube
+        if raw_transcript_json:
+            import json
+
+            try:
+                transcript_data = json.loads(raw_transcript_json)
+            except Exception as e:
+                logger.error("Invalid transcript_json provided: %s", e)
+                return jsonify({"success": False, "error": "Invalid transcript_json"}), 400
+        else:
+            transcript_data = extract_transcript(
+                video_id=video_id,
+                translate_to=translate_to if translate_to else None,
+                output_file="./transcript.json",
+            )
+
+        # Create configuration for section generation
+        generation_config = SectionGenerationConfig(
+            min_sections=min_sections,
+            max_sections=max_sections,
+            min_title_words=min_title_words,
+            max_title_words=max_title_words,
+            use_hierarchical=True,  # Use hierarchical structure by default
+            temperature=0.2,  # Low temperature for consistent output
         )
 
-        # Get transcript
-        transcript_data = transcript.extract_transcript(
-            video_id=video_id, translate_to=translate_to if translate_to else None, output_file="./transcript.json"
-        )
+        # Generate sections using refactored service
+        service = SectionGenerationService()
+        try:
+            sections_list: list[Section] = service.generate_sections(
+                transcript=transcript_data,
+                video_id=video_id,
+                generation_config=generation_config,
+            )
+        except RuntimeError as e:
+            # Likely no LLM provider configured; return helpful error
+            logger.exception("LLM generation failed: %s", e)
+            return (
+                jsonify({
+                    "success": False,
+                    "error": str(e),
+                    "hint": "Set USE_LOCAL_LLM=true with a local model or configure GOOGLE_API_KEY for Gemini.",
+                }),
+                400,
+            )
 
-        # Generate sections
-        sections_data = sections.create_section_timestamps(
-            transcript=transcript_data,
-            section_count_range=section_count_range,
-            title_length_range=title_length_range,
-        )
+        # Convert Section objects to dict format for formatting
+        sections_data = [section.to_dict() for section in sections_list]
 
-        # Format for YouTube
-        youtube_sections = formatting.format_sections_for_youtube(sections_data)
+        # Post-process titles: replace numeric-only or garbage titles with
+        # a cleaned fallback derived from nearby transcript text or a timestamp.
+        # Only apply this when titles look truly invalid (not just because they're in English)
+        def _has_letter(s: str) -> bool:
+            for ch in s:
+                if ch.isalpha():
+                    return True
+            return False
 
-        return jsonify(
-            {"success": True, "sections": youtube_sections, "video_id": video_id}
-        )
+        def _is_valid_title(title: str) -> bool:
+            """Check if title looks like a valid section title (not garbage)."""
+            import re
+
+            # Must have letters
+            if not _has_letter(title):
+                return False
+
+            # Must be at least 3 characters
+            if len(title.strip()) < 3:
+                return False
+
+            # Must not be all digits
+            if title.isdigit():
+                return False
+
+            # Must not contain long digit sequences (like timestamps)
+            if re.search(r"\d{3,}", title):
+                return False
+
+            # Must not be just punctuation or special chars
+            if not re.search(r"[A-Za-z]", title):
+                return False
+
+            # Must have at least one space (indicating multiple words) or be a proper noun
+            words = title.split()
+            if len(words) < 2 and not any(word[0].isupper() for word in words):
+                return False
+
+            return True
+
+        import re
+        for s in sections_data:
+            title = str(s.get("title", "")).strip()
+
+            # Only replace if title looks truly invalid
+            if not _is_valid_title(title):
+                start = float(s.get("start", 0.0))
+                mins = int(start // 60)
+                secs = int(start % 60)
+                new_title = f"Section at {mins:02d}:{secs:02d}"
+                logger.info("Replacing invalid title '%s' at %.1fs with timestamp '%s'", title, start, new_title)
+                s["title"] = new_title
+
+        # Format for YouTube (text) — robustly handle formatting errors
+        try:
+            youtube_sections_text = formatting.format_sections_for_youtube(sections_data)
+        except Exception:
+            logger.exception("Formatting sections failed; falling back to JSON list")
+            youtube_sections_text = "\n".join(f"{s['start']:.1f}s - {s['title']}" for s in sections_data)
+
+        logger.info(f"Successfully generated {len(sections_data)} sections for video {video_id}")
+
+        # Cleanup service resources
+        try:
+            service.cleanup()
+        except Exception:
+            logger.exception("Service cleanup failed")
+
+        # Return success
+        return jsonify({
+            "success": True,
+            "sections_text": youtube_sections_text,
+            "sections": sections_data,
+            "video_id": video_id,
+        }), 200
 
     except Exception as e:
+        logger.exception(f"Error generating sections: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -135,6 +295,20 @@ def download_sections() -> send_file:
     with tempfile.NamedTemporaryFile(mode="w+", delete=False, suffix=".txt") as tmp:
         tmp.write(sections_text)
         tmp_path = tmp.name
+
+    logger.info(f"Preparing download for video {video_id}")
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            import os
+
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+                logger.debug("Deleted temporary file %s", tmp_path)
+        except Exception:
+            logger.exception("Failed to delete temporary file %s", tmp_path)
+        return response
 
     return send_file(
         tmp_path,
