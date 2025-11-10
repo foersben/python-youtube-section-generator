@@ -29,6 +29,11 @@ nav:
   - Development:
     - Testing: development/testing.md
     - Scripts: development/scripts.md
+  - Prospects & Todos:
+    - Index: prospects/index.md
+    - Todos: prospects/todos.md
+    - Roadmap: prospects/roadmap.md
+    - Backlog: prospects/backlog.md
   - Tooling:
     - Copilot Prompts: copilot.md
   - Imported:
