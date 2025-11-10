@@ -7,11 +7,11 @@ import argparse
 import os
 from dotenv import load_dotenv
 
-from core import formatting
-from core.transcript import extract_transcript, extract_video_id
-from core import SectionGenerationService, SectionGenerationConfig
-from core.models import Section
-from utils.logging_config import setup_logging, get_logger
+from src.core import formatting
+from src.core.transcript import extract_transcript, extract_video_id
+from src.core.services.section_generation import SectionGenerationService
+from src.core.models.models import SectionGenerationConfig, Section
+from src.utils.logging_config import setup_logging, get_logger
 
 # Load environment variables once at startup
 load_dotenv()

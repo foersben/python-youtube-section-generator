@@ -1,0 +1,66 @@
+{
+  "status_code": 200,
+  "json": {
+    "sections": [
+      {
+        "start": 722.3,
+        "title": "3589"
+      },
+      {
+        "level": 1,
+        "start": 963.4,
+        "title": "Israelische Besatzung"
+      },
+      {
+        "level": 1,
+        "start": 1204.5,
+        "title": "Glauben, sie hätten die Wahrheit mit"
+      },
+      {
+        "start": 1445.6,
+        "title": "3589"
+      },
+      {
+        "level": 1,
+        "start": 1686.4,
+        "title": "Der alles gemessen wird und die"
+      },
+      {
+        "level": 1,
+        "start": 1927.3,
+        "title": "Sich die Begleitschreiben dazu ansieht"
+      },
+      {
+        "start": 2168.1,
+        "title": "3271"
+      },
+      {
+        "level": 1,
+        "start": 2409.5,
+        "title": "Seite, das andere ist das, was"
+      },
+      {
+        "level": 1,
+        "start": 2651.0,
+        "title": "Diese Produktionsfirma hat auch für das"
+      },
+      {
+        "start": 2892.4,
+        "title": "3589"
+      },
+      {
+        "level": 1,
+        "start": 3133.1,
+        "title": "Nicht, hätte auch die Ukraine kein"
+      },
+      {
+        "level": 1,
+        "start": 3373.8,
+        "title": "Kommen, so befürchte ich, dass es"
+      }
+    ],
+    "sections_text": "1. 12:02 3589\n2.   16:03 Israelische Besatzung\n3.   20:04 Glauben, sie hätten die Wahrheit mit\n4. 24:05 3589\n5.   28:06 Der alles gemessen wird und die\n6.   32:07 Sich die Begleitschreiben dazu ansieht\n7. 36:08 3271\n8.   40:09 Seite, das andere ist das, was\n9.   44:11 Diese Produktionsfirma hat auch für das\n10. 48:12 3589\n11.   52:13 Nicht, hätte auch die Ukraine kein\n12.   56:13 Kommen, so befürchte ich, dass es",
+    "success": true,
+    "video_id": "cZ9PHPta9v0"
+  }
+}

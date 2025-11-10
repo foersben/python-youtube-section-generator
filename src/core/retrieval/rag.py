@@ -51,6 +51,7 @@ class TranscriptRAG:
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.temperature = max(0.0, min(1.0, temperature))
+        self.detected_language = "en"  # Default, will be set during indexing
 
         # Model path resolution (GGUF)
         if model_path is None:
@@ -186,7 +187,14 @@ class TranscriptRAG:
                 return _clean_short(snippet)
 
         except Exception as e:
-            logger.debug("Multi-stage LLM refinement failed: %s", e)
+            logger.error(
+                "❌ LLM title refinement failed (this may indicate non-English content without translation): %s\n"
+                "Snippet preview: %s\n"
+                "Using fallback heuristic instead.",
+                e,
+                snippet[:100],
+                exc_info=True
+            )
             return _clean_short(snippet)
 
     def _polish_title(self, title: str) -> str:
@@ -231,9 +239,19 @@ class TranscriptRAG:
         full_text = self._create_transcript_text(transcript)
         logger.info("Full text length: %s characters", f"{len(full_text):,}")
 
+        # Detect transcript language for language-aware fallback
+        try:
+            from langdetect import detect
+            sample_text = " ".join(seg.get("text", "") for seg in transcript[:50])
+            self.detected_language = detect(sample_text) if sample_text.strip() else "en"
+            logger.info("Detected transcript language: %s", self.detected_language)
+        except Exception as e:
+            logger.warning("Language detection failed: %s; defaulting to English", e)
+            self.detected_language = "en"
+
         chunks = self.text_splitter.create_documents(
             texts=[full_text],
-            metadatas=[{"video_id": video_id, "total_segments": len(transcript)}],
+            metadatas=[{"video_id": video_id, "total_segments": len(transcript), "language": self.detected_language}],
         )
         logger.info("Created %d chunks for indexing", len(chunks))
 
@@ -251,8 +269,16 @@ class TranscriptRAG:
         logger.info("\u2705 Transcript indexed successfully")
 
     # ----------------------- Generation -----------------------
-    def _clean_title_tokens(self, text: str) -> str:
-        """Extract clean title using NLP-inspired heuristics (nouns, proper nouns, key terms)."""
+    def _clean_title_tokens(self, text: str, detected_lang: str | None = None) -> str:
+        """Extract clean title using language-aware heuristics.
+
+        Args:
+            text: Text snippet to extract title from.
+            detected_lang: Optional language code (e.g., 'de', 'en'). Auto-detected if None.
+
+        Returns:
+            Cleaned title string.
+        """
         t = text.strip().strip("\"'`.,;:!?-–—")
 
         # Remove timestamps and numeric-only tokens
@@ -260,19 +286,44 @@ class TranscriptRAG:
         t = re.sub(r"\b\d{2,4}s\b", "", t)
         t = re.sub(r"\[\d+(:\d+)*s\]", "", t)
 
+        # Detect language if not provided
+        if detected_lang is None:
+            try:
+                from langdetect import detect
+                detected_lang = detect(t)
+            except Exception:
+                detected_lang = "en"  # Default to English
+
+        # Language-specific stopwords
+        stopwords_by_lang = {
+            "en": {
+                "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+                "of", "with", "by", "from", "up", "about", "into", "through", "during",
+                "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
+                "do", "does", "did", "will", "would", "could", "should", "may", "might",
+                "can", "must", "shall", "this", "that", "these", "those", "which", "who",
+                "what", "where", "when", "why", "how", "all", "each", "every", "both",
+                "few", "more", "most", "other", "some", "such"
+            },
+            "de": {
+                # German stopwords
+                "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines",
+                "und", "oder", "aber", "in", "an", "auf", "zu", "für", "von", "mit", "bei",
+                "aus", "über", "durch", "um", "nach", "vor", "zwischen", "ist", "sind",
+                "war", "waren", "sein", "haben", "hat", "hatte", "hatten", "werden", "wird",
+                "wurde", "wurden", "kann", "könnte", "muss", "sollte", "mag", "darf", "dies",
+                "diese", "dieser", "dieses", "jene", "welche", "wer", "was", "wo", "wann",
+                "warum", "wie", "alle", "jede", "einige", "mehr", "meisten", "andere", "solche",
+                "äh", "ähm", "hmm", "um", "uh", "er", "also", "nicht", "noch", "schon", "nur",
+                "ich", "du", "wir", "sie", "ihm", "ihr", "ihn", "mir", "dir"
+            }
+        }
+
+        # Get appropriate stopwords for detected language
+        stop_words = stopwords_by_lang.get(detected_lang, stopwords_by_lang["en"])
+
         # Split into words
         words = [w for w in re.split(r"\s+", t) if w]
-
-        # Skip common stop words and verbs
-        stop_words = {
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-            "of", "with", "by", "from", "up", "about", "into", "through", "during",
-            "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-            "do", "does", "did", "will", "would", "could", "should", "may", "might",
-            "can", "must", "shall", "this", "that", "these", "those", "which", "who",
-            "what", "where", "when", "why", "how", "all", "each", "every", "both",
-            "few", "more", "most", "other", "some", "such"
-        }
 
         filtered: list[str] = []
         for w in words:
@@ -289,24 +340,31 @@ class TranscriptRAG:
             if w_clean.isdigit() or re.search(r"\d{3,}", w_clean):
                 continue
 
-            # Skip stop words (case-insensitive)
+            # Skip stopwords (case-insensitive, language-aware)
             if w_clean.lower() in stop_words:
                 continue
 
-            # Prefer capitalized words (likely proper nouns or important terms)
-            # But don't skip lowercase if we have few words
-            if w_clean[0].isupper() or len(filtered) < 2:
-                filtered.append(w_clean)
+            # Language-specific capitalization logic
+            if detected_lang == "de":
+                # German: All nouns are capitalized - strong signal for important words
+                if w_clean[0].isupper():
+                    filtered.append(w_clean)
+                elif len(filtered) < 1:  # Allow first word even if lowercase
+                    filtered.append(w_clean)
+            else:
+                # English/other: Prefer capitalized (proper nouns), but allow lowercase if few words
+                if w_clean[0].isupper() or len(filtered) < 2:
+                    filtered.append(w_clean)
 
             if len(filtered) >= 5:  # Limit to 5 words max
                 break
 
         if not filtered:
-            # Desperate fallback: extract any capitalized words or longest alphabetic sequences
+            # Desperate fallback: extract any capitalized words
             alpha = re.findall(r"[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){0,3}", text)
             if alpha:
                 return alpha[0].strip()
-            # Last resort: just get some alphabetic words
+            # Last resort: get some alphabetic words
             alpha = re.findall(r"[A-Za-zÄÖÜäöüß]{4,}(?:\s+[A-Za-zÄÖÜäöüß]{4,}){0,3}", text)
             return alpha[0].strip() if alpha else "Section"
 
@@ -339,7 +397,7 @@ class TranscriptRAG:
         for idx, sample_time in enumerate(sample_times):
             logger.info("Generating flat section %d/%d at ~%ds", idx + 1, num_sections, int(sample_time))
             nearest = min(transcript, key=lambda s: abs(s.get("start", 0) - sample_time))
-            candidate_title = self._clean_title_tokens(nearest.get("text", ""))
+            candidate_title = self._clean_title_tokens(nearest.get("text", ""), self.detected_language)
             candidate_start = float(nearest.get("start", 0.0))
 
             if use_vectorstore:
@@ -350,7 +408,7 @@ class TranscriptRAG:
                     )
                     if docs:
                         doc_text = getattr(docs[0], "page_content", None) or str(docs[0])
-                        candidate_title = self._clean_title_tokens(doc_text)
+                        candidate_title = self._clean_title_tokens(doc_text, self.detected_language)
                 except Exception:
                     logger.debug("Vectorstore retrieval failed", exc_info=True)
 
@@ -438,7 +496,7 @@ class TranscriptRAG:
 
                 # Improved heuristic subsection titles (filter garbage better)
                 sub_nearest = min(transcript, key=lambda s: abs(s.get("start", 0) - sub_ts))
-                sub_title = self._clean_title_tokens(sub_nearest.get("text", ""))
+                sub_title = self._clean_title_tokens(sub_nearest.get("text", ""), self.detected_language)
 
                 # Additional check: reject if title is still numeric/garbage after cleaning
                 if (not any(c.isalpha() for c in sub_title)) or re.search(r"\d{3,}", sub_title):

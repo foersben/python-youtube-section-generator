@@ -76,3 +76,15 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = ["--verbose", "--cov=src", "--cov-report=term-missing", "--cov-report=html"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.0"
+black = "^24.10.0"
+mkdocs = "^1.6.1"
+mkdocs-material = "^9.6.11"
+mkdocs-include-markdown-plugin = "^7.1.5"
+mkdocstrings = {extras = ["python"], version = "^0.29.1"}
+mkdocs-bibtex = "^4.2.5"
+python-markdown-math = "^0.9"
+ruff = "^0.8.0"
+mypy = "^1.13.0"

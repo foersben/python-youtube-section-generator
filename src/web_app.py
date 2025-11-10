@@ -21,6 +21,10 @@ setup_logging(
     colored=True
 )
 
+# Suppress noisy Flask/Werkzeug logs in development
+import logging
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
 logger = get_logger(__name__)
 
 

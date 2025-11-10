@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any
 
-from src.core.llm.factory import LLMProviderFactory
+from src.core.llm.factory import LLMFactory
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,12 @@ class TranscriptRefinementService:
 
     def __init__(self) -> None:
         """Initialize the transcript refinement service."""
-        self.llm_provider = LLMProviderFactory.create()
-        logger.info("TranscriptRefinementService initialized")
+        self.llm_provider = LLMFactory.create_provider()
+
+        # Get batch size from env (default: 50 for speed, can be tuned)
+        self.default_batch_size = int(os.getenv("REFINEMENT_BATCH_SIZE", "50"))
+
+        logger.info(f"TranscriptRefinementService initialized (batch_size={self.default_batch_size})")
 
     def refine_transcript_segment(self, text: str, context: str = "") -> str:
         """Refine a single transcript segment using LLM.
@@ -42,7 +46,7 @@ class TranscriptRefinementService:
         prompt = self._build_refinement_prompt(text, context)
 
         try:
-            refined_text = self.llm_provider.generate(
+            refined_text = self.llm_provider.generate_text(
                 prompt=prompt,
                 max_tokens=500,
                 temperature=0.3,  # Lower temperature for more deterministic corrections
@@ -62,38 +66,44 @@ class TranscriptRefinementService:
             return text
 
     def refine_transcript_batch(
-        self, segments: list[dict[str, Any]], batch_size: int = 5
+        self, segments: list[dict[str, Any]], batch_size: int | None = None
     ) -> list[dict[str, Any]]:
         """Refine transcript segments in batches for efficiency.
 
         Args:
             segments: List of transcript segments with 'text', 'start', 'duration'.
-            batch_size: Number of segments to process together for context.
+            batch_size: Number of segments to process together (None = use default from env).
 
         Returns:
             List of refined transcript segments.
         """
+        if batch_size is None:
+            batch_size = self.default_batch_size
+
         refined_segments = []
+        total_batches = (len(segments) + batch_size - 1) // batch_size
+
+        logger.info(f"Starting refinement of {len(segments)} segments in {total_batches} batches (batch_size={batch_size})")
 
         for i in range(0, len(segments), batch_size):
             batch = segments[i : i + batch_size]
 
-            # Build context from surrounding segments
+            # Build minimal context from surrounding segments (reduced for speed)
             context_before = ""
             if i > 0:
-                context_before = " ".join(s["text"] for s in segments[max(0, i - 2) : i])
+                context_before = " ".join(s["text"] for s in segments[max(0, i - 1) : i])
 
             context_after = ""
             if i + batch_size < len(segments):
                 context_after = " ".join(
-                    s["text"] for s in segments[i + batch_size : min(len(segments), i + batch_size + 2)]
+                    s["text"] for s in segments[i + batch_size : min(len(segments), i + batch_size + 1)]
                 )
 
             # Refine the batch together for better context
             refined_batch = self._refine_batch_with_context(batch, context_before, context_after)
             refined_segments.extend(refined_batch)
 
-            logger.info(f"Refined batch {i // batch_size + 1}/{(len(segments) + batch_size - 1) // batch_size}")
+            logger.info(f"Refined batch {i // batch_size + 1}/{total_batches} ({len(refined_segments)}/{len(segments)} segments)")
 
         return refined_segments
 
@@ -113,16 +123,13 @@ class TranscriptRefinementService:
         # Combine batch texts
         batch_text = " ".join(s["text"] for s in batch)
 
-        # Build full context
-        full_context = f"{context_before} {batch_text} {context_after}".strip()
-
         prompt = self._build_batch_refinement_prompt(batch_text, context_before, context_after)
 
         try:
-            refined_text = self.llm_provider.generate(
+            refined_text = self.llm_provider.generate_text(
                 prompt=prompt,
-                max_tokens=1000,
-                temperature=0.3,
+                max_tokens=2048,  # Increased for larger batches
+                temperature=0.2,  # Lower for faster, more deterministic output
             )
 
             # Parse the refined text back into segments
@@ -175,26 +182,17 @@ class TranscriptRefinementService:
         Returns:
             LLM prompt string.
         """
-        return f"""You are a transcript refinement expert. Clean and correct the following transcript segment while considering the surrounding context.
+        # Concise prompt for faster processing
+        context_str = ""
+        if context_before or context_after:
+            context_str = f"\nContext: ...{context_before[-100:]} [TEXT] {context_after[:100]}..."
 
-**Instructions:**
-1. Remove filler words ONLY when contextually appropriate (uh, um, hmm, äh, ähm, like, you know, etc.)
-2. Correct phonetic/spelling errors using the full context
-3. Fix grammar while preserving the speaker's intent
-4. Keep technical terms and proper nouns accurate
-5. Maintain natural flow and readability
-6. Return ONLY the refined text, preserving paragraph breaks
+        return f"""Clean this transcript: remove fillers (uh, um, hmm, äh, ähm, like), fix errors, improve grammar. Keep meaning and technical terms.{context_str}
 
-**Previous context:**
-{context_before if context_before else "Start of transcript"}
-
-**TEXT TO REFINE:**
+Text:
 {batch_text}
 
-**Following context:**
-{context_after if context_after else "End of transcript"}
-
-**Refined text (return ONLY the cleaned text):**"""
+Cleaned:"""
 
     def _split_refined_text(
         self, refined_text: str, original_batch: list[dict[str, Any]]

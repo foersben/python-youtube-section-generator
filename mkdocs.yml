@@ -18,6 +18,8 @@ nav:
   - Development:
     - Testing: development/testing.md
     - Scripts: development/scripts.md
+  - Tooling:
+    - Copilot Prompts: copilot.md
   - Imported:
     - Scripts README: imported/scripts_readme.md
     - Scripts Cleanup: imported/scripts_cleanup.md

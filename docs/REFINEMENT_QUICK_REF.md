@@ -13,14 +13,14 @@ Now takes **30-60 minutes (CPU)** or **2-8 minutes (GPU)** - **27-2050x faster**
 
 ## Quick Configuration
 
-### Enable Refinement (Recommended Settings)
+### Enable Refinement (Default - Recommended Settings)
 ```env
-REFINE_TRANSCRIPTS=true
+REFINE_TRANSCRIPTS=true  # Now enabled by default
 REFINEMENT_BATCH_SIZE=50
 LLM_GPU_LAYERS=-1
 ```
 
-### Disable Refinement (Default - Fastest)
+### Disable Refinement (Fastest - Skip Cleaning)
 ```env
 REFINE_TRANSCRIPTS=false
 ```

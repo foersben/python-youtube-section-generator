@@ -96,11 +96,16 @@ class LocalLLMProvider(LLMProvider):
                 "llama-cpp-python not installed. Install with: poetry add llama-cpp-python"
             )
 
+        # Check for GPU support and use it if available for faster inference
+        import os
+        n_gpu_layers = int(os.getenv("LLM_GPU_LAYERS", "-1"))  # -1 = auto (all layers if GPU available)
+
         self.llm = Llama(
             model_path=str(self.model_path),
             n_ctx=n_ctx,
             n_threads=self.n_threads,
             n_batch=512,
+            n_gpu_layers=n_gpu_layers,  # Use GPU if available for massive speedup
             verbose=False,
         )
 

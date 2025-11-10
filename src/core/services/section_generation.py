@@ -231,7 +231,7 @@ class SectionGenerationService:
                 logger.info("Using DeepL for translation")
                 return translator
             except Exception as e:
-                logger.warning("Failed to initialize DeepL: %s; falling back to local LLM translator", e)
+                logger.error("Failed to initialize DeepL: %s; falling back to local LLM translator", e, exc_info=True)
         else:
             logger.info("DEEPL_API_KEY not set; using local LLM translator as fallback")
 
@@ -242,7 +242,13 @@ class SectionGenerationService:
             logger.info("Using local LlamaCpp translator (fallback mode)")
             return translator
         except Exception as e:
-            logger.warning("Failed to initialize local translator: %s; skipping translation", e)
+            logger.error(
+                "❌ CRITICAL: Failed to initialize local translator: %s\n"
+                "This will cause poor title quality for non-English transcripts!\n"
+                "Fix: Ensure DEEPL_API_KEY is set or LOCAL_MODEL_PATH points to a valid model.",
+                e,
+                exc_info=True
+            )
             return None
 
     def _detect_language(self, transcript: list[dict[str, Any]]) -> str | None:

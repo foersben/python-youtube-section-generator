@@ -6,8 +6,8 @@ This package provides utilities for extracting and processing YouTube transcript
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
-from pathlib import Path
 
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -41,13 +41,20 @@ def _convert_transcript_to_dict(transcript_data) -> list[dict[str, Any]]:
     return segments
 
 
-def extract_transcript(video_id: str, output_file: str | None = None, translate_to: str | None = None) -> list[dict[str, Any]]:
+def extract_transcript(
+    video_id: str,
+    output_file: str | None = None,
+    translate_to: str | None = None,
+    refine_with_llm: bool = None,
+) -> list[dict[str, Any]]:
     """Extract a YouTube transcript and optionally save or translate it.
 
     Args:
         video_id: YouTube video ID (11-character ID or URL accepted by the library).
         output_file: Optional path to save the transcript as JSON.
         translate_to: Optional language code to translate to.
+        refine_with_llm: Whether to use LLM for intelligent transcript refinement.
+                        If None, uses REFINE_TRANSCRIPTS env var (default: True).
 
     Returns:
         List of transcript segments as dictionaries.
@@ -75,6 +82,21 @@ def extract_transcript(video_id: str, output_file: str | None = None, translate_
             logger.info(f"- Generated: {'Yes' if transcript.is_generated else 'No'}")
         except Exception:
             pass
+
+        # Apply LLM-based refinement if enabled
+        if refine_with_llm is None:
+            refine_with_llm = os.getenv("REFINE_TRANSCRIPTS", "true").lower() == "true"
+
+        if refine_with_llm:
+            try:
+                from src.core.services.transcript_refinement import TranscriptRefinementService
+
+                logger.info("Refining transcript with LLM...")
+                refinement_service = TranscriptRefinementService()
+                serializable_data = refinement_service.refine_transcript_batch(serializable_data)
+                logger.info("Transcript refinement complete")
+            except Exception as e:
+                logger.warning(f"Failed to refine transcript with LLM: {e}. Using raw transcript.")
 
         if output_file:
             file_io.write_to_file(serializable_data, output_file)

@@ -1,0 +1,58 @@
+{
+  "status_code": 200,
+  "json": {
+    "sections": [
+      {
+        "start": 0.0,
+        "title": "Intro"
+      },
+      {
+        "start": 0.6,
+        "title": "Intro"
+      },
+      {
+        "start": 1.2,
+        "title": "Intro"
+      },
+      {
+        "start": 1.8,
+        "title": "Second part"
+      },
+      {
+        "start": 2.3,
+        "title": "Second part"
+      },
+      {
+        "start": 2.9,
+        "title": "Second part"
+      },
+      {
+        "start": 3.5,
+        "title": "Second part"
+      },
+      {
+        "start": 4.1,
+        "title": "Second part"
+      },
+      {
+        "start": 4.7,
+        "title": "Second part"
+      },
+      {
+        "start": 5.2,
+        "title": "Second part"
+      },
+      {
+        "start": 5.8,
+        "title": "Second part"
+      },
+      {
+        "start": 6.4,
+        "title": "Second part"
+      }
+    ],
+    "sections_text": "1. 00:00 Intro\n2. 00:00 Intro\n3. 00:01 Intro\n4. 00:01 Second part\n5. 00:02 Second part\n6. 00:02 Second part\n7. 00:03 Second part\n8. 00:04 Second part\n9. 00:04 Second part\n10. 00:05 Second part\n11. 00:05 Second part\n12. 00:06 Second part",
+    "success": true,
+    "video_id": "a24109bf2b5e"
+  }
+}
