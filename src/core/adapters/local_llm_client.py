@@ -9,16 +9,43 @@ import logging
 import warnings
 from pathlib import Path
 from typing import Any
+import importlib
+try:
+    from filelock import FileLock
+except Exception as e:
+    raise RuntimeError(
+        "filelock is required for serializing local model loads. Run `poetry install` to install project dependencies (filelock)."
+    ) from e
 
 logger = logging.getLogger(__name__)
 
 # Lazy import to avoid heavy dependencies at module import time
 def _get_local_provider(*, model_path: str | Path | None = None, n_ctx: int = 4096, n_threads: int | None = None, temperature: float = 0.2):
-    import importlib
+    """Create and return a LocalLLMProvider while serializing model loads across processes.
 
-    mod = importlib.import_module("src.core.llm.local_provider")
-    LocalLLMProvider = getattr(mod, "LocalLLMProvider")
-    return LocalLLMProvider(model_path=model_path or None, n_ctx=n_ctx, n_threads=n_threads, temperature=temperature)
+    Use `filelock.FileLock` to serialize model loads across processes. The lock
+    file is placed next to the model file (default: `models/.llm_load.lock`).
+    """
+
+    # Determine lock directory (model parent or ./models)
+    try:
+        lock_dir = Path(model_path).parent if model_path else Path.cwd() / "models"
+    except Exception:
+        lock_dir = Path.cwd() / "models"
+
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lockfile = lock_dir / ".llm_load.lock"
+
+    # Always use FileLock (we raised earlier if filelock missing)
+    lock = FileLock(str(lockfile))
+    logger.info(f"Waiting for local LLM filelock: {lockfile}")
+    with lock:
+        logger.info(f"Acquired local LLM filelock: {lockfile}")
+        mod = importlib.import_module("src.core.llm.local_provider")
+        LocalLLMProvider = getattr(mod, "LocalLLMProvider")
+        provider = LocalLLMProvider(model_path=model_path or None, n_ctx=n_ctx, n_threads=n_threads, temperature=temperature)
+        logger.info(f"Releasing local LLM filelock: {lockfile}")
+        return provider
 
 
 class LocalLLMClient:
