@@ -34,6 +34,9 @@ nav:
     - Todos: prospects/todos.md
     - Roadmap: prospects/roadmap.md
     - Backlog: prospects/backlog.md
+    - Setup Interactive: prospects/setup-interactive.md
+    - Processing Architecture: prospects/processing-architecture.md
+    - Heavy Tests: prospects/heavy-tests.md
   - Tooling:
     - Copilot Prompts: copilot.md
   - Imported:
