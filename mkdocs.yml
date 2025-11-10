@@ -13,15 +13,15 @@ nav:
   - Home: index.md
   - Setup: setup.md
   - Architecture:
-    - Overview: ARCHITECTURE.md
+    - Overview: architecture.md
   - Refinement:
-    - Transcript Refinement: TRANSCRIPT_REFINEMENT.md
+    - Transcript Refinement: transcript-refinement.md
   - LLM:
-    - Configuration & Licensing: LLM_CONFIGURATION.md
+    - Configuration & Licensing: llm-configuration.md
     - Optimization Summary: OPTIMIZATION_SUMMARY.md
   - Quality:
     - Quality Improvements: QUALITY_IMPROVEMENTS.md
-    - Troubleshooting: TROUBLESHOOTING.md
+    - Troubleshooting: troubleshooting.md
   - API:
     - API Index: api/index.md
     - Web App: api/web_app.md
@@ -37,9 +37,9 @@ nav:
     - Tests README: imported/tests_readme.md
   - Appendix:
     - Project README: project_readme.md
-    - Documentation Index: README.md
+    - Documentation Index: documentation-index.md
     - Status & Updates: status_index.md
-    - Changelog: CHANGELOG.md
+    - Changelog: changelog/index.md
     - Contributing: contributing.md
 
 plugins:
