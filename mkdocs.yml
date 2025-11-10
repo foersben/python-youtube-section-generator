@@ -39,12 +39,8 @@ nav:
     - Heavy Tests: prospects/heavy-tests.md
   - Tooling:
     - Copilot Prompts: copilot.md
-  - Imported:
-    - Scripts README: imported/scripts_readme.md
-    - Scripts Cleanup: imported/scripts_cleanup.md
-    - Tests README: imported/tests_readme.md
   - Appendix:
-    - Project README: project_readme.md
+    - Project README: project-readme.md
     - Documentation Index: documentation-index.md
     - Status & Updates: status_index.md
     - Changelog: changelog/index.md
