@@ -1,51 +1,81 @@
 # Development & Testing
 
-This page consolidates development guidance: testing policy, scripts,
-serialization/locking for LLM tests, and CI notes.
+Purpose & Philosophy
 
-Testing policy
+Development practices aim for fast feedback (unit/lint) and controlled heavy
+runs (LLM/RAG) to avoid wasting resources and causing local system strain.
 
-- Fast tests: unit tests, linters and small integration tests — run on GitHub
-  hosted runners. Command: `poetry run pytest -q`
-- Heavy LLM/RAG tests: expensive CPU-bound tests that require local models —
-  gated and run on self-hosted runners labeled `self-hosted-llm`.
+Testing tiers (why separate?)
 
-LLM test gating and serialization
+- Fast tier: ensures correctness of pure Python logic and lightweight services.
+  These tests give near-instant feedback on PRs (<1 min typical) and catch most
+  regressions early.
+- Heavy tier: exercises integration of local model loading, RAG indexing,
+  multi-stage refinement. Running them on-demand prevents timeouts and resource
+  contention (LLM loads are expensive on CPU).
 
-- Heavy tests are marked with `@pytest.mark.llm` and are skipped by default.
-- Guarded execution via environment variable: set `RUN_HEAVY_INTEGRATION=true` to allow heavy tests.
-- Serialization: tests using local LLMs must acquire a file lock to prevent
-  concurrent model loads (use the `filelock` package). A common lock path is
-  `models/.llm_load.lock`.
+Heaviness indicators
 
-CI overview
+- Large model load (GGUF via llama.cpp)
+- Vector store creation (ChromaDB persistence)
+- Extensive prompt chaining or refinement loops
 
-- `fast-tests` job runs on `ubuntu-latest` and executes unit tests + lint
-- `heavy-integration` job runs only on self-hosted runners labeled
-  `self-hosted-llm` and requires `RUN_HEAVY_INTEGRATION=true`
+Serialization rationale
 
-Example local CI using `act`
+Multiple concurrent heavy tests can overrun memory or degrade performance.
+Using a file lock around LLM access guarantees only one model load/refinement
+sequence at a time, avoiding OOM and preventing skewed timings.
 
-- Install Docker and `act`.
-- Run a single job locally:
+Environment flags
 
-```bash
-act -j fast-tests --container-architecture linux/amd64
+- `RUN_HEAVY_INTEGRATION=true` — global opt-in to heavy tests
+- `LOCAL_MODEL_PATH` — path to GGUF model (validated before heavy tests run)
+
+LLM test marker
+
+```python
+import pytest
+
+@pytest.mark.llm
+def test_heavy_title_generation():
+    # heavy test code
+    ...
 ```
 
-Scripts
+CI design (why two jobs?)
 
-- Scripts live under `scripts/` and are organized into `tools`, `verify`,
-  `dev`, and `obsolete`.
-- `scripts/setup_interactive.py` — interactive installer (planned)
-- `scripts/download_model.sh` — model download helper
-- `scripts/tools/todos_to_issues.py` — utility to create GitHub issues from `docs/prospects/todos.md` (dry-run by default)
+- `fast-tests`: runs on GitHub-hosted runners — universal reliability, no
+  special requirements.
+- `heavy-integration`: runs only where the model is present — prevents flaky
+  failures due to missing model weights or insufficient RAM.
 
-Developer checklist
+Local CI with `act` (benefits)
 
-- Run `poetry install` and `poetry run pre-commit install` (if pre-commit configured)
-- Run `poetry run pytest` locally before pushing
-- Keep heavy tests gated and mark heavy LLM tests with `@pytest.mark.llm`
+- Validate YAML logic and dependency install without consuming hosted minutes.
+- Rapid iteration on workflow steps (e.g., adding caching or matrix changes).
 
-See `docs/legacy/development/` for original, more detailed dev notes.
+Scripts grouping (why this structure?)
 
+- `tools/` — direct setup & maintenance actions (download model, todos tool)
+- `verify/` — diagnostics (GPU detection, config verification)
+- `dev/` — developer productivity helpers (profiling, debug harnesses)
+- `obsolete/` — archived one-off or replaced artifacts to keep root clean
+
+Checklist before pushing
+
+1. `poetry install` — dependencies in sync
+2. `poetry run pytest -q` — fast tier green
+3. Optional: `RUN_HEAVY_INTEGRATION=true poetry run pytest -m llm -q` when
+   changing LLM/RAG code
+4. Format & lint: (if configured) `black`, `ruff`, `mypy`
+5. Update docs/changelog for user-facing changes
+
+Failure diagnostics
+
+- If tests hang: inspect lock file usage (`lsof models/.llm_load.lock`)
+- If memory errors occur: ensure only one heavy test running; reduce context or
+  use smaller model variant.
+
+References
+
+- Legacy development details: `docs/legacy/development/*.md`

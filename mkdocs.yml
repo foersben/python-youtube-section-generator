@@ -12,39 +12,18 @@ theme:
 nav:
   - Home: index.md
   - Setup: setup.md
-  - Architecture:
-    - Overview: architecture.md
-  - Refinement:
-    - Transcript Refinement: transcript-refinement.md
-  - LLM:
-    - Configuration & Licensing: llm-configuration.md
-    - Optimization Summary: optimization-summary.md
-  - Quality:
-    - Quality Improvements: quality-improvements.md
-    - Troubleshooting: troubleshooting.md
-  - API:
-    - API Index: api/index.md
-    - Web App: api/web_app.md
-    - Core Services: api/core_services.md
-  - Development:
-    - Testing: development/testing.md
-    - Scripts: development/scripts.md
-  - Prospects & Todos:
-    - Index: prospects/index.md
-    - Todos: prospects/todos.md
-    - Roadmap: prospects/roadmap.md
-    - Backlog: prospects/backlog.md
-    - Setup Interactive: prospects/setup-interactive.md
-    - Processing Architecture: prospects/processing-architecture.md
-    - Heavy Tests: prospects/heavy-tests.md
-  - Tooling:
-    - Copilot Prompts: copilot.md
+  - Architecture: architecture.md
+  - Development: development.md
+  - Prospects & Todos: prospects.md
+  - Troubleshooting: troubleshooting.md
+  - Changelog:
+    - Index: changelog/index.md
+    - Unreleased: changelog/unreleased.md
+    - v1.0.0 (2025-11-09): changelog/releases/2025-11-09-v1.0.0.md
   - Appendix:
-    - Project README: project-readme.md
-    - Documentation Index: documentation-index.md
-    - Status & Updates: status_index.md
-    - Changelog: changelog/index.md
     - Contributing: contributing.md
+    - Status & Updates: status_index.md
+    - Legacy (reference only): legacy/documentation-index.md
 
 plugins:
   - search

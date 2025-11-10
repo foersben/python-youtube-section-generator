@@ -1,30 +1,50 @@
 # Prospects, Todos & Roadmap
 
-This page groups short-term todos, the roadmap, and backlog research items.
-Split detailed plans live in `docs/legacy/prospects/` for reference.
+Purpose
 
-Short-term todos
+This page consolidates actionable next steps (todos), rationale for upcoming
+changes, and a high-level roadmap. Detailed working notes remain in
+`docs/legacy/prospects/`.
+
+Why these priorities?
+
+- Interactive setup reduces onboarding time and prevents misconfiguration
+- Staged pipeline lowers prompt complexity and improves quality on small models
+- CI split keeps PR feedback fast and isolates heavy tests to prepared runners
+- LLM gating & locking prevent local resource exhaustion
+
+Short-term todos (grouped)
+
+Setup & DX
 
 - Interactive `poetry` setup and `.env` helper (high)
-- Pipeline refactor (staged pipeline) — implement `src/core/pipeline.py` (high)
-- Add CI skeleton (fast-tests + gated heavy-integration) (high)
-- Add `filelock` and `@pytest.mark.llm` gating for heavy tests (high)
+- Pre-commit and CI check to prevent non-doc READMEs outside root (high)
+
+Pipeline & Quality
+
+- Implement `src/core/pipeline.py` orchestrator (high)
+- Add language-aware heuristics to fallback title generator (high)
+- Improve error logging visibility with `exc_info=True` (medium)
+
+CI & Tests
+
+- Add CI skeleton (fast-tests + gated heavy-integration) (done)
+- Mark heavy tests with `@pytest.mark.llm` and gate on env (high)
+- Add file-based serialization with `filelock` around LLM access (high)
 
 Roadmap (summary)
 
-- Stabilize refinement pipeline and translation fallbacks (Q4 2025)
-- Add self-hosted runner automation and heavy-test workflows (Q1 2026)
-- Long-term: speaker diarization, multilingual fine-tuning, desktop bundle
+- Q4 2025: Stabilize translation fallbacks; document staged pipeline; docs polish
+- Q1 2026: Self-hosted runner automation; refine RAG retrieval & ranking
+- Long-term: diarization, multilingual fine-tuning, portable desktop bundle
 
 Backlog & research
 
-- Phonetic correction datasets for German/English
-- Retrieval-augmented polishing (RAP) for title refinement
-- Efficient CPU-embeddings alternatives
+- Phonetic correction datasets (DE/EN) for refinement evaluation
+- Retrieval-augmented polishing (RAP) for titles
+- More efficient CPU embeddings and chunking strategies
 
-How to contribute
+Ownership & tracking
 
-- Move an item from backlog into an actionable issue/PR and assign owners
-- Use `scripts/tools/todos_to_issues.py` to create issues from `prospects/todos.md`
-
-
+- Use `scripts/tools/todos_to_issues.py` to open issues for top items
+- Add labels `priority:high`, `area:pipeline`, `area:ci`, `doc:setup`
