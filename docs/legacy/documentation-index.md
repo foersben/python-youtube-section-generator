@@ -1,5 +1,11 @@
 # Documentation Index
 
+This docs site mirrors the project documentation. The canonical project `README.md` is in the repository root and linked below.
+
+- Root README (canonical): `../README.md`
+
+Please note: all documentation files in `docs/` must follow the filename convention: lowercase, kebab-case (e.g. `transcript-refinement.md`).
+
 Welcome to the YouTube Transcript Section Generator documentation!
 
 ## 📚 Documentation Overview
