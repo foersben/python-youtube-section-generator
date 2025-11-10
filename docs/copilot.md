@@ -1,59 +1,66 @@
 # GitHub Copilot & Reusable Prompts
 
-This page documents the project's GitHub Copilot prompt library, how to use the prompts,
-and how Copilot is integrated into the repository and workflows. It also explains
-how the project's GitHub Actions workflows are structured (fast tests vs heavy
-LLM tests) and how to run heavy tests on a self-hosted runner.
+This page documents the project's GitHub Copilot prompt library, how to use prompts
+consistently, and how Copilot fits into our CI / developer workflow. It also
+explains the two-tier CI model used here (fast tests vs heavy LLM/RAG tests) and
+how to run heavy tests on a self-hosted runner.
 
-Quick checklist (what you'll learn on this page)
+Table of contents
 
-- Where prompts live and how to use them
-- A reusable prompt template you can adopt
-- Best practices for prompts and generated code
-- How CI is set up: fast tests (GitHub-hosted) and heavy tests (self-hosted)
-- How to provision a self-hosted runner for heavy LLM tests
-- Security and privacy notes
+- [Overview](#1-overview)
+- [Where prompts live](#2-where-prompts-live)
+- [How to use a prompt (quick)](#3-how-to-use-a-prompt-quick)
+- [Prompt template (recommended)](#4-prompt-template-recommended)
+- [Best practices for generated code](#5-best-practices-for-generated-code)
+- [Concrete example prompt](#6-concrete-example-prompt)
+- [Integration with GitHub Actions (CI)](#7-integration-with-github-actions-ci)
+- [Running workflows locally with act](#8-running-workflows-locally-with-act)
+- [Self-hosted runner setup (quick)](#9-self-hosted-runner-setup-quick)
+- [Security, licensing, and privacy notes](#10-security-licensing-and-privacy-notes)
+- [Contributing new prompts](#11-contributing-new-prompts)
+- [FAQ and quick commands](#12-faq-and-quick-commands)
 
 ---
 
 ## 1. Overview
 
-The repository provides small, focused prompt files under `.github/prompts/`.
-Prompts are intended as deterministic instructions for Copilot or a human
-reviewer to produce code that follows project conventions (type hints,
-Google-style docstrings, logging policy, testability).
+Prompts are small, focused instruction files that help generate code snippets or
+boilerplate that conform to the project's style and architecture. They live in
+`.github/prompts/` and are intended to be used as context for Copilot or any
+assistant. Prompts are guidance — not a substitute for careful review and tests.
 
-Prompts are *not* replacements for code review. Always review generated code.
+Keep prompts concise, single-purpose, and example-driven.
 
 ---
 
 ## 2. Where prompts live
 
-- Prompt files: `.github/prompts/*.prompt.md`
-- Documentation landing page: `docs/copilot.md` (this page)
+- Directory: `.github/prompts/`
+- Filename convention: `*.prompt.md`
+- This docs page: `docs/copilot.md`
 
-If you add new prompts, create a single-file `.prompt.md` with a short title,
-inputs, expected outputs, and a tiny example.
+When you add a prompt, include: title, short goal, inputs/outputs, constraints,
+one compact example, and 1–2 suggested tests.
 
 ---
 
-## 3. How to use a prompt (practical steps)
+## 3. How to use a prompt (quick)
 
-1. Open the appropriate `.prompt.md` file in your editor.
-2. Read the instructions and the example.
-3. Use Copilot (or your assistant) with that file visible so context is available.
-4. Accept or edit suggestions, then run linters and tests locally.
+1. Open the `.prompt.md` file relevant to your task in the editor.
+2. Keep the prompt visible to Copilot so generated content takes the prompt
+   context into account.
+3. Accept or iterate on suggestions and immediately run linters and tests.
 
-Quick local verification commands
+Quick verification commands
 
 ```bash
-# Install project (if not done):
+# install deps (first time)
 poetry install
 
-# Run fast unit tests (skips heavy LLM tests):
+# run fast tests (unit, lint — heavy LLM tests skipped by default)
 poetry run pytest -q
 
-# Build the docs locally to preview the prompt and docs pages:
+# build or serve docs locally
 poetry run mkdocs serve
 ```
 
@@ -61,70 +68,69 @@ poetry run mkdocs serve
 
 ## 4. Prompt template (recommended)
 
-Use this small, repeatable template as the top of any `.prompt.md`:
+Copy this header into new `.prompt.md` files and fill the sections:
 
 ```text
 Title: <one-line task title>
 
 Goal:
-  - Describe the goal in 1-2 short sentences.
+  - Short description (1-2 lines)
 
 Inputs:
-  - List of inputs and types (e.g. transcript: list[dict[str, Any]])
+  - name: type — brief description
 
 Output:
-  - Describe expected output shape (e.g. list[dict[str, Any]] with keys title/start)
+  - name: type — brief description
 
 Constraints / Conventions:
-  - Use Python 3.11 built-in generics (list[str], dict[str, Any])
+  - Python 3.11 built-ins: `list[str]`, `dict[str, Any]` (no `typing.List`)
   - Google-style docstrings
-  - Type annotate all function signatures
-  - Use logging (logger = logging.getLogger(__name__))
+  - Type annotate public functions
+  - Use `logging.getLogger(__name__)`
 
 Example (minimal):
-  # short example input -> output mapping
+  # show input -> expected output mapping
 
 Tests:
-  - Suggest 1-2 lightweight tests that validate the result
+  - suggestion: pytest assertion(s) to validate behavior
 ```
 
-Keep prompts focused — one task per prompt.
+Keep prompts narrow — one behavior per file.
 
 ---
 
 ## 5. Best practices for generated code
 
-- Always run `ruff`/`black`/`mypy` and `pytest` locally before committing.
-- Avoid hardcoding secrets; use environment variables and `.env`.
-- Add a short unit test for any non-trivial logic you introduce.
-- Prefer small helper functions with single responsibility over monoliths.
-- Add Google-style docstrings for public functions and classes.
+- Run `ruff`/`black`/`mypy` and `pytest` locally before committing.
+- Avoid embedding secrets in prompts or generated code. Use environment variables.
+- Add tests for non-trivial logic and a docstring describing inputs/outputs.
+- Prefer small testable helper functions; keep functions short and focused.
 
 ---
 
-## 6. Example prompt (concrete)
+## 6. Concrete example prompt
 
-Title: Generate a 2-4 word section title from a snippet
+**Title**: Generate a concise section title from a snippet
 
-Goal:
-  - Produce a concise, noun-based section title in English for a given transcript
+**Goal**
+- Produce a 2–4 word noun-based English title for a transcript snippet.
 
-Inputs:
-  - snippet: str  # a text excerpt (100-300 chars)
+**Inputs**
+- `snippet: str` — up to 300 characters of transcript or excerpt
 
-Output:
-  - title: str  # 2-4 words, nouns preferred, no punctuation
+**Output**
+- `title: str` — 2–4 words, nouns preferred, no punctuation
 
-Constraints:
-  - Use English when generating titles (we translate DE->EN first in the pipeline)
-  - Keep titles short, 2-4 words
+**Constraints**
+- Generate English titles (DE -> EN translation happens upstream).
+- Avoid generic verbs or filler words.
 
-Example:
-  Input: "In this section we discuss university policy and student councils..."
-  Output: "Student Council Policy"
+**Example**
+- Input: “We’ll discuss student governance, the council, and campus policy.”
+- Output: `Student Council Policy`
 
-Tests:
-  - Assert the output is 1-4 words and letters/numbers only (no newlines)
+**Tests**
+- Ensure output has 1–4 words and contains only letters/numbers and spaces.
 
 ---
 
@@ -132,78 +138,141 @@ Tests:
 
 We use a two-tier CI model (see `.github/workflows/ci.yml`):
 
-1. Fast tests (GitHub-hosted runners)
-   - Runs on push and pull requests.
-   - Installs dependencies and runs fast unit tests (`poetry run pytest -q`).
-   - Skips heavy LLM/RAG tests by default (these are marked with `@pytest.mark.llm`).
+- `fast-tests` job (GitHub-hosted): installs deps and runs fast tests on push and PRs.
+- `heavy-tests-self-hosted` job (self-hosted): runs LLM/RAG-heavy tests only on
+  self-hosted runners with label `self-hosted-llm` and only for manual or
+  scheduled triggers.
 
-2. Heavy tests (self-hosted runner with label `self-hosted-llm`)
-   - Triggered manually (`workflow_dispatch`) or on schedule.
-   - Runs only on a self-hosted runner that has the local GGUF model and sufficient resources.
-   - Enables heavy tests by setting `RUN_HEAVY_INTEGRATION=true` and runs only tests marked `llm`:
-     - `poetry run pytest -q -m llm`
+Example excerpt of the fast-tests job steps (illustrative):
 
-Why this split?
-- Fast feedback for typical PRs (unit tests + lint) without expensive model loads.
-- Heavy LLM/RAG tests run only on machines that can handle the memory/CPU (local
-  model weights are large and CPU inference is slow).
+```yaml
+- name: Install dependencies
+  run: |
+    python -m pip install --upgrade pip
+    pip install poetry
+    poetry install --no-interaction
+- name: Run fast tests
+  run: poetry run pytest -q
+```
 
-### Where to find the workflow
-- File: `.github/workflows/ci.yml`
-- Fast tests job: `fast-tests`
-- Heavy tests job: `heavy-tests-self-hosted`
+Example excerpt of the heavy self-hosted job (illustrative):
 
-You can view the CI implementation in the repository to see exact steps and
-environment variables used.
+```yaml
+runs-on: [self-hosted, self-hosted-llm]
+steps:
+  - uses: actions/checkout@v4
+  - name: Install deps
+    run: poetry install --no-interaction
+  - name: Run heavy tests
+    env:
+      RUN_HEAVY_INTEGRATION: 'true'
+      LOCAL_MODEL_PATH: /path/to/model.gguf
+    run: poetry run pytest -q -m llm
+```
+
+Rationale: keep PR feedback fast and inexpensive; run expensive checks only on
+machines prepared to host the models.
 
 ---
 
-## 8. Self-hosted runner setup (quick guide)
+## 8. Running workflows locally with `act`
 
-If you want to run heavy LLM tests in CI, prepare a self-hosted runner:
+`act` is a popular tool to run GitHub Actions locally inside Docker. It is
+useful for iterating on CI logic (install/test steps) without pushing to GitHub.
 
-1. Provision a machine or VM with enough RAM (recommended 16+ GB for non-quantized models; 5-8 GB with 4-bit quantization) and CPU/GPU as needed.
-2. Install the GitHub Actions runner software and register it with your repository. See: https://docs.github.com/en/actions/hosting-your-own-runners
-3. Add the runner labels `self-hosted` and `self-hosted-llm` (or use an existing label).
-4. Ensure the machine has the local model weights placed at the expected `LOCAL_MODEL_PATH` (or set the env var in runner config).
-5. Install Python, Poetry and run `poetry install` on the runner so the environment builds quickly.
-6. Optionally, set `LOCAL_MODEL_PATH` and `USE_LOCAL_LLM=true` in the runner's environment variables (via the runner service or system env) so workflows find the model.
+Example `act` usage to run the `fast-tests` job (requires Docker):
+
+```bash
+# list available jobs
+act --list
+
+# run the fast-tests job
+act -j fast-tests --container-architecture linux/amd64
+
+# pass secrets from a file
+act -j fast-tests --secret-file .secrets
+```
 
 Notes:
-- Keep runner access restricted to trusted CI jobs and trusted users — self-hosted runners execute arbitrary job steps.
-- Regularly update the runner software and clean large caches to avoid disk saturation.
+- `act` simulates GitHub runners but cannot simulate some hosted features
+  (OIDC, some GitHub-provided services).
+- Heavy LLM tests that require local GPU/large model files are better tested on
+  a self-hosted runner; `act` can still be used to validate non-LLM parts of the job.
 
 ---
 
-## 9. Security, privacy and secrets
+## 9. Self-hosted runner setup (quick)
 
-- Prompts should never contain secrets. Use environment variables for API keys.
-- Do not commit sensitive model artifacts to the repository. Keep weights outside Git.
-- Use the repository's Settings > Secrets to store any secret tokens used in CI.
+To run heavy LLM tests in CI, prepare a self-hosted runner that satisfies the
+requirements:
 
----
+1. Provision a VM or physical machine (recommended: 16+ GB RAM for unquantized models; ~6–8 GB with 4-bit quantization).
+2. Install the GitHub Actions runner and label it `self-hosted-llm`.
+3. Place the local model(s) at `LOCAL_MODEL_PATH` (or set that env var on the runner).
+4. Install Python and Poetry and run `poetry install` so the job setup is quick.
+5. Restrict runner access and keep it patched/updated.
 
-## 10. Contributing new prompts
-
-1. Add a new file to `.github/prompts/` using the `.prompt.md` extension.
-2. Follow the prompt template (see section 4).
-3. Add a short example and suggested test(s).
-4. Open a PR adding the prompt and a short note in `docs/copilot.md` or a new docs page if the prompt is large.
-
----
-
-## 11. FAQ
-
-Q: Where do I run the generated code before pushing?
-A: Locally — use Poetry and the venv created by `poetry install`, run linters and the fast test suite.
-
-Q: How do I enable heavy tests locally?
-A: Set `RUN_HEAVY_INTEGRATION=true` and ensure `LOCAL_MODEL_PATH` points to a valid GGUF model.
+Security note: self-hosted runners run arbitrary code — keep them locked to
+trusted repositories or dedicated runners.
 
 ---
 
-## 12. Related pages
+## 10. Security, licensing and privacy notes
 
-- `docs/development/testing.md` — testing policy and how the LLM tests are gated
-- `.github/workflows/ci.yml` — CI pipeline
+- Never store API keys or credentials in prompt files or checked-in markdown.
+- For local models: check the model license before redistribution. Models like
+  LLaMA-family and some Hugging Face weights have license requirements; do not
+  commit model weights to the repository.
+- Store CI secrets via GitHub repository Secrets (Settings → Secrets).
+
+---
+
+## 11. Contributing new prompts
+
+1. Create a single `.prompt.md` file under `.github/prompts/`.
+2. Follow the prompt template (Section 4).
+3. Add an example and a suggested lightweight test.
+4. Open a PR and reference `docs/copilot.md` explaining the new prompt.
+
+---
+
+## 12. FAQ and quick commands
+
+Q: Where do I run generated code before pushing?  
+A: Locally, inside the Poetry venv: `poetry install` → `poetry run pytest -q`.
+
+Q: How do I enable heavy tests locally?  
+A: Set env vars and run marked tests:
+
+```bash
+export LOCAL_MODEL_PATH=./models/Phi-3-mini-4k-instruct-q4.gguf
+export RUN_HEAVY_INTEGRATION=true
+poetry run pytest -q -m llm
+```
+
+Quick commands summary
+
+```bash
+# Fast tests (default)
+poetry run pytest -q
+
+# Heavy LLM tests (opt-in)
+export RUN_HEAVY_INTEGRATION=true
+poetry run pytest -q -m llm
+
+# Serve docs locally
+poetry run mkdocs serve
+```
+
+---
+
+## 13. Related pages
+
+- `docs/development/testing.md` — testing policy and how LLM tests are gated
+- `.github/workflows/ci.yml` — CI pipeline implementation
 - `docs/imported/scripts_readme.md` — imported scripts README
+
+If you want, I can automatically add the remaining `docs/*.md` files into the
+navigation and resolve the current mkdocs warnings (broken links and unused
+pages). Which would you prefer: (A) add all remaining docs to the site nav, or
+(B) add only a curated subset and fix links?

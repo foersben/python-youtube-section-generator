@@ -254,7 +254,6 @@ Potential improvements:
 ## Related Documentation
 
 - [Architecture Overview](ARCHITECTURE.md)
-- [LLM Configuration](../README.md#local-llm-configuration)
-- [API Documentation](api.md)
+- [LLM Configuration](LLM_CONFIGURATION.md)
+- [API Documentation](api/index.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
-

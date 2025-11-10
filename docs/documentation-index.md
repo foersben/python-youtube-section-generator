@@ -4,10 +4,10 @@ Welcome to the YouTube Transcript Section Generator documentation!
 
 ## 📚 Documentation Overview
 
-This project maintains clean, organized documentation in the root directory:
+This project maintains clean, organized documentation in the `docs/` folder.
 
 ### Core Documentation
-- **[README.md](../README.md)** - Main project documentation, installation, and usage
+- **[Project README](project_readme.md)** - Main project documentation, installation, and usage
 - **[CHANGELOG.md](CHANGELOG.md)** - Chronological record of all changes and improvements
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Technical architecture and design decisions
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
@@ -16,10 +16,10 @@ This project maintains clean, organized documentation in the root directory:
 ### Quick Links
 
 #### For Users
-- [Installation & Setup](../README.md#installation)
-- [Web Interface Usage](../README.md#web-interface-recommended)
-- [CLI Usage](../README.md#command-line)
-- [Configuration](../README.md#configuration)
+- [Installation & Setup](project_readme.md#quick-start-recommended)
+- [Web Interface Usage](project_readme.md#or-start-the-web-app)
+- [CLI Usage](project_readme.md#quick-start-recommended)
+- [Configuration](project_readme.md#configuration-env)
 - [Troubleshooting](TROUBLESHOOTING.md)
 
 #### For Developers
@@ -55,7 +55,7 @@ This project maintains clean, organized documentation in the root directory:
 ## 📖 Reading Guide
 
 ### New Users
-1. Start with **[README.md](../README.md)** - Installation and basic usage
+1. Start with **[Project README](project_readme.md)** - Installation and basic usage
 2. Try the **Web Interface** - Easiest way to get started
 3. Check **Configuration** - Customize for your needs
 
