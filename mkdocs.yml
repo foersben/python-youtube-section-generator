@@ -18,9 +18,9 @@ nav:
     - Transcript Refinement: transcript-refinement.md
   - LLM:
     - Configuration & Licensing: llm-configuration.md
-    - Optimization Summary: OPTIMIZATION_SUMMARY.md
+    - Optimization Summary: optimization-summary.md
   - Quality:
-    - Quality Improvements: QUALITY_IMPROVEMENTS.md
+    - Quality Improvements: quality-improvements.md
     - Troubleshooting: troubleshooting.md
   - API:
     - API Index: api/index.md
