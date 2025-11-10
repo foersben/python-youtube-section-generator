@@ -1,0 +1,43 @@
+site_name: Python YouTube Transcript
+site_description: Documentation for the Python YouTube Transcript project
+site_author: "foerster_work"
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.sections
+    - toc.integrate
+
+nav:
+  - Home: index.md
+  - Setup: setup.md
+  - API:
+    - Web App: api/web_app.md
+    - Core Services: api/core_services.md
+  - Development:
+    - Testing: development/testing.md
+    - Scripts: development/scripts.md
+  - Imported:
+    - Scripts README: imported/scripts_readme.md
+    - Scripts Cleanup: imported/scripts_cleanup.md
+    - Tests README: imported/tests_readme.md
+  - Contributing: contributing.md
+
+plugins:
+  - search
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_root_heading: true
+  - bibtex:
+      bib_file: "docs/references.bib"
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.tabbed
