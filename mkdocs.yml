@@ -12,7 +12,18 @@ theme:
 nav:
   - Home: index.md
   - Setup: setup.md
+  - Architecture:
+    - Overview: ARCHITECTURE.md
+  - Refinement:
+    - Transcript Refinement: TRANSCRIPT_REFINEMENT.md
+  - LLM:
+    - Configuration & Licensing: LLM_CONFIGURATION.md
+    - Optimization Summary: OPTIMIZATION_SUMMARY.md
+  - Quality:
+    - Quality Improvements: QUALITY_IMPROVEMENTS.md
+    - Troubleshooting: TROUBLESHOOTING.md
   - API:
+    - API Index: api/index.md
     - Web App: api/web_app.md
     - Core Services: api/core_services.md
   - Development:
@@ -24,11 +35,17 @@ nav:
     - Scripts README: imported/scripts_readme.md
     - Scripts Cleanup: imported/scripts_cleanup.md
     - Tests README: imported/tests_readme.md
-  - Contributing: contributing.md
+  - Appendix:
+    - Project README: project_readme.md
+    - Documentation Index: README.md
+    - Status & Updates: status_index.md
+    - Changelog: CHANGELOG.md
+    - Contributing: contributing.md
 
 plugins:
   - search
-  - include-markdown
+  - include-markdown:
+      rewrite_relative_urls: true
   - mkdocstrings:
       handlers:
         python:
@@ -38,8 +55,32 @@ plugins:
       bib_file: "docs/references.bib"
 
 markdown_extensions:
+  - mdx_math
+  - abbr
   - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
   - toc:
       permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.caret
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
   - pymdownx.superfences
-  - pymdownx.tabbed
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist
+  - pymdownx.tilde
