@@ -14,6 +14,7 @@ nav:
   - Setup: setup.md
   - Architecture: architecture.md
   - Development: development.md
+  - Advanced: advanced.md
   - Prospects & Todos: prospects.md
   - Troubleshooting: troubleshooting.md
   - Changelog:
@@ -21,6 +22,7 @@ nav:
     - Unreleased: changelog/unreleased.md
     - v1.0.0 (2025-11-09): changelog/releases/2025-11-09-v1.0.0.md
   - Appendix:
+    - Project README: project-readme.md
     - Contributing: contributing.md
     - Status & Updates: status_index.md
     - Legacy (reference only): legacy/documentation-index.md
