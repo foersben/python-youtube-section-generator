@@ -5,21 +5,44 @@ Usage: invoked via pre-commit.
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# Allow only the canonical root README and anything under docs/
 ALLOWED = {
     ROOT / "README.md",
 }
 
+# Directories to skip while scanning to avoid false positives
+EXCLUDE_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    "site",          # mkdocs build output
+    "htmlcov",       # coverage HTML output
+    "node_modules",
+    "webapp-linux",
+}
+
+
+def _iter_markdown_files(base: Path) -> list[Path]:
+    files: list[Path] = []
+    for p in base.rglob("*.md"):
+        # Skip excluded directories
+        if any(part in EXCLUDE_DIRS for part in p.parts):
+            continue
+        files.append(p)
+    return files
+
 
 def main() -> int:
     bad: list[Path] = []
-    for p in ROOT.rglob("*.md"):
-        if p.name.upper().startswith("README") or p.name.upper().startswith("CLEANUP"):
+    for p in _iter_markdown_files(ROOT):
+        name_upper = p.name.upper()
+        if name_upper.startswith("README") or name_upper.startswith("CLEANUP"):
             # Allowed only at root README.md or anywhere under docs/
             if p in ALLOWED:
                 continue
@@ -39,27 +62,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-repos:
-  - repo: https://github.com/psf/black
-    rev: 23.12.1
-    hooks:
-      - id: black
-        language_version: python3.11
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.5
-    hooks:
-      - id: ruff
-        args: [--fix]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.10.0
-    hooks:
-      - id: mypy
-        additional_dependencies: [types-all]
-  - repo: local
-    hooks:
-      - id: forbid-stray-readmes
-        name: Forbid stray README/CLEANUP outside root or docs
-        entry: python scripts/tools/check_stray_docs.py
-        language: system
-        pass_filenames: false
-
