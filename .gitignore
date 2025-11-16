@@ -11,3 +11,6 @@ models/
 youtube_sections.txt
 .secrets
 site/
+setup-act.sh
+.actrc
+.github/
