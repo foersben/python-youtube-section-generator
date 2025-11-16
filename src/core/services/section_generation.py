@@ -18,6 +18,7 @@ from src.core.models import Section, SectionGenerationConfig, TranscriptSegment
 from src.core.retrieval import RAGSystem
 from src.core.services.translation import DeepLAdapter, TranslationProvider
 from src.core.services.pipeline import PipelineContext, build_pipeline
+from src.core.services.pipeline_stages import FinalTitleTranslationStage
 
 logger = logging.getLogger(__name__)
 
@@ -79,49 +80,49 @@ class SectionGenerationService:
             f"Generating sections (duration={total_duration:.0f}s, use_rag={use_rag}, pipeline={config.pipeline_strategy})"
         )
 
+        original_lang_code = self._get_original_lang_code(transcript_dicts, source_lang)
+
         if use_rag:
             sections_data = self._generate_with_rag(working_transcript, vid_id, gen_config)
+            sections = [Section.from_dict(s) for s in sections_data]
+
+            pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
+            pipeline_context.metadata["generation_config"] = gen_config
+            if original_lang_code:
+                pipeline_context.metadata["original_language_code"] = original_lang_code
+            if translator is not None:
+                pipeline_context.metadata["translation_provider"] = translator
+
+            translation_stage = FinalTitleTranslationStage()
+            logger.info("Running pipeline stage: %s", translation_stage.name)
+            translation_stage.run(pipeline_context)
+            sections = pipeline_context.sections or sections
         else:
             sections_data = self._generate_direct(working_transcript, gen_config)
+            sections = [Section.from_dict(s) for s in sections_data]
 
-        # Convert to Section objects
-        sections = [Section.from_dict(s) for s in sections_data]
+            pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
+            pipeline_context.metadata["generation_config"] = gen_config
+            if self.llm_provider is not None:
+                pipeline_context.metadata["llm_provider"] = self.llm_provider
+            if original_lang_code:
+                pipeline_context.metadata["original_language_code"] = original_lang_code
+            if translator is not None:
+                pipeline_context.metadata["translation_provider"] = translator
 
-        pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
-        pipeline_context.metadata["generation_config"] = gen_config
-        if self.llm_provider is not None:
-            pipeline_context.metadata["llm_provider"] = self.llm_provider
+            stages = build_pipeline(pipeline_context)
+            for stage in stages:
+                logger.info("Running pipeline stage: %s", getattr(stage, "name", stage.__class__.__name__))
+                stage.run(pipeline_context)
 
-        # Preserve original language and translator for downstream stages (e.g. back-translation)
-        # Prefer explicit detected source_lang, fallback to marker in the raw transcript when present
-        original_lang = None
-        if transcript_dicts and isinstance(transcript_dicts, list) and transcript_dicts[0].get("original_language_code"):
-            original_lang = transcript_dicts[0].get("original_language_code")
-        else:
-            original_lang = source_lang
-        if original_lang:
-            pipeline_context.metadata["original_language_code"] = original_lang
-
-        # Expose the translation provider into the pipeline context so final stage can use it
-        if translator is not None:
-            pipeline_context.metadata["translation_provider"] = translator
-
-        stages = build_pipeline(pipeline_context)
-        for stage in stages:
-            logger.info("Running pipeline stage: %s", getattr(stage, "name", stage.__class__.__name__))
-            stage.run(pipeline_context)
-
-        sections = pipeline_context.sections or pipeline_context.metadata.get("enriched_sections", sections)
-
-        # NOTE: Back-translation of finalized English titles is handled by the
-        # FinalTitleTranslationStage in the pipeline (it will read
-        # "original_language_code" and use the provided translation provider).
-        # We avoid duplicating translation work here.
+            sections = pipeline_context.sections or pipeline_context.metadata.get("enriched_sections", sections)
 
         # Apply validation and cleanup
-        sections = self._validate_and_clean(sections, transcript_dicts)
+        sections = self._validate_and_clean(list(sections), transcript_dicts)
 
-        logger.info(f"\u2705 Generated {len(sections)} sections via pipeline")
+        logger.info(
+            f"\u2705 Generated {len(sections)} sections (RAG={use_rag}, Pipeline={'RAG' if use_rag else config.pipeline_strategy})"
+        )
         return sections
 
     def _generate_with_rag(
@@ -377,5 +378,15 @@ class SectionGenerationService:
 
         logger.info("✅ Translation complete: %d segments translated in %d batches", len(result), len(batches))
         return result
+
+    def _get_original_lang_code(
+        self,
+        transcript_dicts: list[dict[str, Any]],
+        source_lang: str | None,
+    ) -> str | None:
+        """Helper to extract original language code for later translation."""
+        if transcript_dicts and transcript_dicts[0].get("original_language_code"):
+            return transcript_dicts[0].get("original_language_code")
+        return source_lang
 
 __all__ = ["SectionGenerationService"]

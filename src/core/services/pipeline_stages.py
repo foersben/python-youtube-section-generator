@@ -17,6 +17,8 @@ import os
 from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING
 
+import numpy as np
+
 from src.core.config import config
 from src.core.llm import LLMFactory
 from src.core.models import Section, SectionGenerationConfig
@@ -410,8 +412,18 @@ def _ensure_generation_config(context: "PipelineContext") -> SectionGenerationCo
 
 
 def _summarize_transcript(transcript: list[dict[str, Any]], limit: int = 40) -> str:
-    lines = []
-    for seg in transcript[:limit]:
+    if not transcript:
+        return ""
+
+    count = min(limit, len(transcript))
+    if count == len(transcript):
+        sampled = transcript
+    else:
+        indices = np.linspace(0, len(transcript) - 1, num=count, dtype=int)
+        sampled = [transcript[i] for i in indices]
+
+    lines: list[str] = []
+    for seg in sampled:
         text = seg.get("text", "").strip()
         if not text:
             continue
@@ -553,4 +565,3 @@ __all__ = [
     "FinalFormattingStage",
     "FinalTitleTranslationStage",
 ]
-

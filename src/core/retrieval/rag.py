@@ -9,6 +9,7 @@ model.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -118,112 +119,70 @@ class TranscriptRAG:
         return "\n".join(lines)
 
     def _aggregate_context(
-        self, transcript: list[dict[str, Any]], ts: float, window: float = 30.0, max_chars: int = 400
+        self, transcript: list[dict[str, Any]], ts: float, window: float = 60.0, max_chars: int = 2000
     ) -> str:
-        """Aggregate transcript text around a timestamp, plus vector hits (best-effort)."""
-        # Window-based context
-        nearby = [seg for seg in transcript if abs(seg.get("start", 0) - ts) <= window]
+        """Aggregate transcript text around a timestamp, plus vector hits."""
+        nearby = [seg for seg in transcript if abs(seg.get("start", 0.0) - ts) <= window]
         if not nearby:
-            nearby = [min(transcript, key=lambda seg: abs(seg.get("start", 0) - ts))]
-        window_text = " ".join(str(s.get("text", "")) for s in nearby)
+            nearby = [min(transcript, key=lambda seg: abs(seg.get("start", 0.0) - ts))]
+        window_text = " ".join(str(s.get("text", "")) for s in nearby).strip()
 
-        # Vectorstore-based context (best-effort) – use semantic query text
         vec_text = ""
-        if getattr(self, "vectorstore", None) is not None and window_text.strip():
+        if getattr(self, "vectorstore", None) is not None and window_text:
             try:
                 query_text = window_text[:512]
-                docs = self.vectorstore.similarity_search(query=query_text, k=2)
+                docs = self.vectorstore.similarity_search(query=query_text, k=3)
                 vec_text = " ".join(getattr(d, "page_content", str(d)) for d in docs)
             except Exception:
                 vec_text = ""
 
-        combined = f"{window_text} \n {vec_text}".strip()
-        combined = re.sub(r"\s+", " ", combined).strip()
+        combined = f"{window_text}\n{vec_text}".strip()
+        combined = re.sub(r"\s+", " ", combined)
         return combined[:max_chars]
 
     def _refine_title_with_llm(self, snippet: str) -> str:
-        """Multi-stage LLM refinement: extract keywords → generate title → polish.
-
-        Breaking into simple steps allows Phi-3-mini to succeed where one complex
-        prompt fails.
-        """
-        def _clean_short(text: str) -> str:
-            t = text.strip().strip("\"'`.,;:!?-–—")
-            words = re.findall(r"[A-Za-zÄÖÜäöüß]+", t)
-            if not words:
-                return "Section"
-            title = " ".join(words[:7])
-            if title and not title[0].isupper():
-                title = title[0].upper() + title[1:]
-            return title
-
+        """Generate a concise section title from a transcript snippet."""
+        snippet = (snippet or "").strip()
         if not snippet:
             return "Section"
 
-        # STAGE 1: Extract 3-5 key topics/entities (simple extraction task)
-        stage1_prompt = (
-            f"Extract 3-5 key topics from this text:\n{snippet[:200]}\n\n"
-            "Topics:"
+        context_snippet = snippet[:1500]
+        prompt = (
+            "You write table-of-contents headings for long-form videos. "
+            "Given the transcript excerpt below, produce one descriptive title (3-10 words). "
+            "It must be a standalone phrase without prefixes or numbering.\n\n"
+            f"Excerpt:\n\"...{context_snippet}...\"\n\nTitle:"
         )
-
         try:
-            keywords_result = self.llm.invoke(stage1_prompt)  # type: ignore[attr-defined]
-            keywords = str(keywords_result).strip().splitlines()[0][:100]
+            result = self.llm.invoke(prompt)  # type: ignore[attr-defined]
+            raw_title = str(result).strip().splitlines()[0]
+            polished = self._polish_title(raw_title)
+            if len(polished.split()) >= 2:
+                return polished
+        except Exception as exc:
+            logger.error("LLM title refinement failed: %s", exc, exc_info=True)
 
-            # STAGE 2: Create title from keywords (focused generation task)
-            stage2_prompt = (
-                f"Create a 2-4 word title from these topics: {keywords}\n"
-                "Use nouns only. No verbs.\n"
-                "Title:"
-            )
-
-            title_result = self.llm.invoke(stage2_prompt)  # type: ignore[attr-defined]
-            raw_title = str(title_result).strip().splitlines()[0]
-
-            # STAGE 3: Polish (minimal cleanup)
-            title = self._polish_title(raw_title)
-
-            if title and len(title.split()) >= 2:
-                return title
-            else:
-                # Fallback to heuristic if multi-stage fails
-                return _clean_short(snippet)
-
-        except Exception as e:
-            logger.error(
-                "❌ LLM title refinement failed (this may indicate non-English content without translation): %s\n"
-                "Snippet preview: %s\n"
-                "Using fallback heuristic instead.",
-                e,
-                snippet[:100],
-                exc_info=True
-            )
-            return _clean_short(snippet)
+        return self._clean_title_tokens(snippet, self.detected_language)
 
     def _polish_title(self, title: str) -> str:
-        """Light polish - remove artifacts but don't reject valid titles."""
-        import re
-
-        # Remove common artifacts
-        artifacts = ["assistant", "response", "title", "topics"]
+        """Remove artifacts and normalize capitalization."""
+        title = title.strip().strip("\"'`.,;:!?-–—")
+        artifacts = [
+            "assistant", "response", "title", "topics", "here is", "here's",
+            "sure", "of course", "intro", "section"
+        ]
         for artifact in artifacts:
-            title = re.sub(rf'\b{artifact}\b', '', title, flags=re.IGNORECASE)
+            title = re.sub(rf"\b{artifact}\b:?", "", title, flags=re.IGNORECASE)
 
-        # Clean punctuation
-        title = title.strip("\"'`.,;:!?-–—")
-
-        # Remove articles at start
         words = title.split()
-        if words and words[0].lower() in ["the", "a", "an"]:
+        if words and words[0].lower() in {"the", "a", "an"}:
             words = words[1:]
+        title = " ".join(words).strip()
 
-        title = " ".join(words)
-
-        # Capitalize
         if title and not title[0].isupper():
             title = title[0].upper() + title[1:]
 
-        return title
+        return title or "Section"
 
 
 
@@ -496,67 +455,38 @@ class TranscriptRAG:
         self,
         transcript: list[dict[str, Any]],
         total_duration: float,
-        main_sections_count: int,
+        main_sections_count: int,  # retained for compatibility, not strictly used
         subsections_per_main: int,
         retrieval_k: int,
     ) -> list[dict[str, Any]]:
-        """Generate hierarchical sections using semantic boundaries and RAG context."""
-
-        # 1. Find semantic main sections (ignoring main_sections_count in favor of data-driven boundaries)
+        """Generate hierarchical sections using semantic boundaries and refined prompts."""
         main_sections = self._find_semantic_boundaries(transcript, distance_percentile=25)
         if not main_sections:
             return []
 
         sections: list[dict[str, Any]] = []
-
-        def _aggregate_snippet(ts: float, window: float = 20.0, max_words: int = 6) -> str:
-            nearby = [seg for seg in transcript if abs(seg.get("start", 0) - ts) <= window]
-            if not nearby:
-                nearby = [min(transcript, key=lambda seg: abs(seg.get("start", 0) - ts))]
-            combined = " ".join(str(s.get("text", "")) for s in nearby)
-            words = re.findall(r"[A-Za-zÄÖÜäöüß]+", combined)
-            if not words:
-                return "Section"
-            title = " ".join(words[:max_words])
-            if title and not title[0].isupper():
-                title = title[0].upper() + title[1:]
-            return title
+        use_llm_titles = os.getenv("USE_LLM_TITLES", "true").lower() == "true"
+        vectorstore_available = getattr(self, "vectorstore", None) is not None
 
         for idx, main_seg in enumerate(main_sections):
             main_start = float(main_seg.get("start", 0.0))
-            base_query_text = main_seg.get("text", "")
+            context_window = self._aggregate_context(transcript, ts=main_start, window=90.0, max_chars=2000)
 
-            use_llm_titles = os.getenv("USE_LLM_TITLES", "true").lower() == "true"
-
-            if use_llm_titles and getattr(self, "vectorstore", None) is not None and base_query_text.strip():
+            main_title = self._clean_title_tokens(main_seg.get("text", ""), self.detected_language)
+            if use_llm_titles and vectorstore_available and context_window:
                 try:
-                    docs = self.vectorstore.similarity_search(
-                        query=base_query_text,
-                        k=max(1, retrieval_k),
+                    main_title = self._refine_title_with_llm(context_window)
+                    logger.info(
+                        "[llama.cpp] Main title refined at %.1fs -> %s",
+                        main_start,
+                        main_title,
                     )
-                    context = base_query_text + "\n" + "\n".join(
-                        getattr(d, "page_content", "") for d in docs
-                    )
-                    refined = self._refine_title_with_llm(context)
-                    if refined and any(c.isalpha() for c in refined):
-                        logger.info(
-                            "[llama.cpp] Refined main title at %.1fs using %s: '%s'",
-                            main_start,
-                            Path(self.model_path).name,
-                            refined,
-                        )
-                        main_title = refined
-                    else:
-                        main_title = _aggregate_snippet(main_start)
                 except Exception:
-                    logger.warning("[llama.cpp] Refinement failed; using heuristic")
-                    main_title = _aggregate_snippet(main_start)
-            else:
-                main_title = _aggregate_snippet(main_start)
+                    logger.warning("Main title refinement failed at %.1fs; using heuristic", main_start)
 
             sections.append({"title": main_title, "start": main_start, "level": 0})
 
-            # Subsections: keep time-based distribution within each semantic region
+            # Determine chunk boundaries for subsections
             if idx + 1 < len(main_sections):
                 next_start = float(main_sections[idx + 1].get("start", total_duration))
             else:
@@ -564,27 +494,30 @@ class TranscriptRAG:
 
             window_start = main_start
             window_end = max(window_start + 1.0, next_start)
-            window_len = window_end - window_start
 
             if subsections_per_main <= 0:
                 continue
 
-            for si in range(subsections_per_main):
-                frac = (si + 1) / (subsections_per_main + 1)
-                sub_ts = window_start + frac * window_len
-                if sub_ts > total_duration:
-                    sub_ts = total_duration
+            chunk_segments = [
+                seg for seg in transcript
+                if window_start <= seg.get("start", 0.0) < window_end
+            ]
 
-                sub_nearest = min(transcript, key=lambda s: abs(s.get("start", 0) - sub_ts))
-                sub_title = self._clean_title_tokens(sub_nearest.get("text", ""), self.detected_language)
+            subtopics = self._find_subtopics_in_chunk(chunk_segments, subsections_per_main)
+            if not subtopics:
+                subtopics = self._fallback_time_subsections(transcript, window_start, window_end, subsections_per_main)
 
-                if (not any(c.isalpha() for c in sub_title)) or re.search(r"\d{3,}", sub_title):
-                    sub_title = _aggregate_snippet(sub_ts)
-                words = re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", sub_title)
-                if len(words) < 2:
-                    sub_title = _aggregate_snippet(sub_ts)
-
-                sections.append({"title": sub_title, "start": round(sub_ts, 1), "level": 1})
+            for sub in subtopics:
+                sub_start = float(sub.get("start", window_start))
+                if sub_start <= window_start + 5.0:  # avoid duplicates right after main title
+                    continue
+                if sub_start > window_end:
+                    sub_start = window_end
+                sections.append({
+                    "title": sub.get("title", "Section"),
+                    "start": round(sub_start, 1),
+                    "level": 1,
+                })
 
         return sections
 
@@ -658,3 +591,84 @@ class TranscriptRAG:
         except Exception:
             logger.debug("Cleanup encountered an error", exc_info=True)
             return
+
+    def _find_subtopics_in_chunk(
+        self,
+        transcript_chunk: list[dict[str, Any]],
+        max_subsections: int,
+    ) -> list[dict[str, Any]]:
+        """Use the local LLM to identify subtopics within a transcript slice."""
+        if not transcript_chunk or max_subsections <= 0:
+            return []
+
+        chunk_text = self._create_transcript_text(transcript_chunk)
+        if len(chunk_text) < 120:
+            return []
+
+        prompt = (
+            "You are a video editor. Analyze the following transcript section and extract up to "
+            f"{max_subsections} distinct subtopics. Use the timestamps from the [xx.xs] markers "
+            "for each subtopic's start value. Respond strictly as JSON with schema: "
+            '{"subtopics": [{"start": <seconds>, "title": "..."}]}.'
+            "\n\nTranscript Section:\n"
+            f"{chunk_text}\n\nJSON:"
+        )
+
+        prev_max_tokens = getattr(self.llm, "max_tokens", None)
+        try:
+            if prev_max_tokens and prev_max_tokens < 400:
+                self.llm.max_tokens = 400
+            raw_response = str(self.llm.invoke(prompt))  # type: ignore[attr-defined]
+        except Exception as exc:
+            logger.warning("Subtopic extraction failed: %s", exc)
+            return []
+        finally:
+            if prev_max_tokens is not None:
+                self.llm.max_tokens = prev_max_tokens
+
+        match = re.search(r"\{.*\}", raw_response, re.DOTALL)
+        json_payload = match.group(0) if match else raw_response.strip()
+        try:
+            payload = json.loads(json_payload)
+        except json.JSONDecodeError:
+            logger.warning("Subtopic JSON parse failed; raw response: %s", raw_response[:200])
+            return []
+
+        subtopics = payload.get("subtopics", []) if isinstance(payload, dict) else []
+        results: list[dict[str, Any]] = []
+        for topic in subtopics:
+            if not isinstance(topic, dict):
+                continue
+            try:
+                start_val = float(topic.get("start"))
+            except (TypeError, ValueError):
+                continue
+            title_val = self._polish_title(str(topic.get("title", "")).strip())
+            if not title_val:
+                continue
+            results.append({"title": title_val, "start": start_val, "level": 1})
+            if len(results) >= max_subsections:
+                break
+        return results
+
+    def _fallback_time_subsections(
+        self,
+        transcript: list[dict[str, Any]],
+        window_start: float,
+        window_end: float,
+        count: int,
+    ) -> list[dict[str, Any]]:
+        """Fallback heuristic for subsection creation using evenly spaced timestamps."""
+        if count <= 0 or window_end <= window_start:
+            return []
+
+        subsections: list[dict[str, Any]] = []
+        for idx in range(count):
+            frac = (idx + 1) / (count + 1)
+            sub_ts = window_start + frac * (window_end - window_start)
+            nearest = min(transcript, key=lambda seg: abs(seg.get("start", 0.0) - sub_ts)) if transcript else None
+            title = self._clean_title_tokens(nearest.get("text", "") if nearest else "Section", self.detected_language)
+            if len(title.split()) < 2:
+                title = self._clean_title_tokens("Section", self.detected_language)
+            subsections.append({"title": title or "Section", "start": round(sub_ts, 1), "level": 1})
+        return subsections

@@ -8,3 +8,5 @@ __pycache__/
 .venv
 models/
 .chromadb/
+youtube_sections.txt
+.secrets
