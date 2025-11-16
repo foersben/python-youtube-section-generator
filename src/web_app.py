@@ -1,3 +1,4 @@
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -68,7 +69,13 @@ def index() -> Response:
         Flask Response with the rendered index template and cache-control
         headers to force browsers to fetch the latest client-side script.
     """
-    html = render_template("index.html")
+    from os import getenv
+
+    html = render_template(
+        "index.html",
+        current_pipeline=getenv("PIPELINE_STRATEGY", "legacy"),
+        current_rag=getenv("USE_RAG", "auto"),
+    )
     resp = Response(html)
     # Prevent caching so client always receives updated JS after edits
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -110,6 +117,20 @@ def generate_sections() -> Response:
         # Video ID or URL is optional when providing raw transcript_json
         video_url = request.form.get("video_id", "")
         logger.info(f"Received request for video URL: {video_url}")
+
+        pipeline_strategy = request.form.get("pipeline_strategy")
+        if pipeline_strategy:
+            os.environ["PIPELINE_STRATEGY"] = pipeline_strategy
+            logger.info("Using pipeline strategy: %s", pipeline_strategy)
+
+        rag_mode = request.form.get("rag_mode")
+        if rag_mode:
+            rag_mode_normalized = rag_mode.lower()
+            if rag_mode_normalized in {"always", "auto", "never"}:
+                os.environ["USE_RAG"] = rag_mode_normalized
+                logger.info("Using RAG mode: %s", rag_mode_normalized)
+            else:
+                logger.warning("Ignoring invalid RAG mode from request: %s", rag_mode)
 
         # Parse raw transcript if provided (we'll compute a synthetic video_id)
         raw_transcript_json = request.form.get("transcript_json")
@@ -270,6 +291,8 @@ def generate_sections() -> Response:
             "sections_text": youtube_sections_text,
             "sections": sections_data,
             "video_id": video_id,
+            "pipeline_strategy": pipeline_strategy or os.getenv("PIPELINE_STRATEGY", "legacy"),
+            "rag_mode": os.getenv("USE_RAG", "auto"),
         }), 200
 
     except Exception as e:

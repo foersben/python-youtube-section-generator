@@ -47,14 +47,23 @@ def extract_transcript(
     translate_to: str | None = None,
     refine_with_llm: bool = None,
 ) -> list[dict[str, Any]]:
-    """Extract a YouTube transcript and optionally save or translate it.
+    """Extract a YouTube transcript for processing and track original language.
+
+    The pipeline always prefers an English transcript for processing when
+    available (or falls back to the original-language transcript if English
+    cannot be fetched or translated). The original language of the video is
+    recorded in the first transcript segment under ``original_language_code``
+    so that section titles can later be translated back to the original
+    language at the end of the processing pipeline.
 
     Args:
-        video_id: YouTube video ID (11-character ID or URL accepted by the library).
+        video_id: YouTube video ID (11-character ID or URL accepted by the
+            library).
         output_file: Optional path to save the transcript as JSON.
-        translate_to: Optional language code to translate to.
-        refine_with_llm: Whether to use LLM for intelligent transcript refinement.
-                        If None, uses REFINE_TRANSCRIPTS env var (default: True).
+        translate_to: Deprecated for transcript content.
+        refine_with_llm: Whether to use LLM for intelligent transcript
+            refinement. If None, uses REFINE_TRANSCRIPTS env var (default:
+            True).
 
     Returns:
         List of transcript segments as dictionaries.
@@ -63,25 +72,84 @@ def extract_transcript(
         Exception: If transcript extraction fails.
     """
     try:
-        transcript_list = YouTubeTranscriptApi().list(video_id)
+        ytt_api = YouTubeTranscriptApi()
+
+        # Retrieve available transcripts to inspect languages
+        transcript_list = ytt_api.list(video_id)
         transcripts = list(transcript_list)
+        if not transcripts:
+            raise RuntimeError("No transcripts available for video")
 
-        transcript = next((s for s in transcripts if not s.is_generated), transcripts[0])
+        # Prefer manually created transcript when available (original)
+        original_transcript = next((s for s in transcripts if not s.is_generated), transcripts[0])
+        original_lang_code = getattr(original_transcript, "language_code", "") or ""
 
-        if translate_to:
-            transcript_data = transcript.translate(translate_to).fetch()
-        else:
-            transcript_data = transcript.fetch()
-
-        serializable_data = _convert_transcript_to_dict(transcript_data)
-
-        logger.info("Transcript Details:")
+        # 1) Try to fetch an English transcript directly (preferred for processing)
+        fetched = None
         try:
-            logger.info(f"- Video ID: {transcript.video_id}")
-            logger.info(f"- Language: {transcript.language} ({transcript.language_code})")
-            logger.info(f"- Generated: {'Yes' if transcript.is_generated else 'No'}")
+            try:
+                fetched_en = ytt_api.fetch(video_id, languages=["en"])
+                fetched = fetched_en
+                logger.info("Using fetched English transcript for processing")
+            except Exception:
+                fetched = None
+
+            # 2) If fetch didn't return English, try to find or translate
+            if fetched is None:
+                processing_transcript = None
+                try:
+                    processing_transcript = transcript_list.find_transcript(["en"])
+                    logger.info("Using native English transcript for processing")
+                    fetched = processing_transcript.fetch()
+                except Exception:
+                    processing_transcript = None
+
+                # 3) If no English transcript found, try translating the original transcript to English
+                if fetched is None:
+                    if getattr(original_transcript, "is_translatable", False):
+                        try:
+                            logger.info("Translating original transcript %s -> en for processing", original_lang_code or "unknown")
+                            translated_transcript = original_transcript.translate("en")
+                            fetched = translated_transcript.fetch()
+                        except Exception as exc:
+                            logger.warning("Failed to translate transcript to English: %s", exc)
+                            fetched = None
+
+                # 4) If still no fetched transcript, fall back to the original transcript
+                if fetched is None:
+                    logger.warning("Falling back to original transcript language '%s' for processing", original_lang_code or "unknown")
+                    fetched = original_transcript.fetch()
+
+        except Exception as e:
+            logger.error("Unexpected error while selecting transcript: %s", e, exc_info=True)
+            # Last resort: use original transcript
+            try:
+                fetched = original_transcript.fetch()
+            except Exception:
+                raise
+
+        # Convert fetched transcript into serializable segments
+        serializable_data = _convert_transcript_to_dict(fetched)
+
+        logger.info("Transcript Details (processing):")
+        try:
+            logger.info(f"- Original Language: {original_transcript.language} ({original_lang_code})")
+            # fetched may be a FetchedTranscript or a Transcript-like object
+            proc_lang = getattr(fetched, "language", None) or getattr(fetched, "language_code", None) or "unknown"
+            proc_code = getattr(fetched, "language_code", None) or getattr(fetched, "language", None) or ""
+            logger.info(f"- Processing Language: {proc_lang} ({proc_code})")
+            # For fetched objects, check is_generated flag when available
+            is_gen = getattr(fetched, "is_generated", None)
+            if is_gen is not None:
+                logger.info(f"- Generated: {'Yes' if is_gen else 'No'}")
         except Exception:
             pass
+
+        # Attach original language metadata to the first segment for downstream
+        # use so that later stages (e.g., section title translation) can
+        # translate English titles back to the original language if desired.
+        if serializable_data:
+            serializable_data[0]["original_language_code"] = original_lang_code or getattr(fetched, "language_code", "")
 
         # Apply LLM-based refinement if enabled
         if refine_with_llm is None:
@@ -93,10 +161,14 @@ def extract_transcript(
 
                 logger.info("Refining transcript with LLM...")
                 refinement_service = TranscriptRefinementService()
-                serializable_data = refinement_service.refine_transcript_batch(serializable_data)
+                serializable_data = refinement_service.refine_transcript_batch(
+                    serializable_data
+                )
                 logger.info("Transcript refinement complete")
             except Exception as e:
-                logger.warning(f"Failed to refine transcript with LLM: {e}. Using raw transcript.")
+                logger.warning(
+                    f"Failed to refine transcript with LLM: {e}. Using raw transcript."
+                )
 
         if output_file:
             file_io.write_to_file(serializable_data, output_file)

@@ -15,6 +15,8 @@ import re
 import hashlib
 from pathlib import Path
 from typing import Any, cast
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -125,11 +127,12 @@ class TranscriptRAG:
             nearby = [min(transcript, key=lambda seg: abs(seg.get("start", 0) - ts))]
         window_text = " ".join(str(s.get("text", "")) for s in nearby)
 
-        # Vectorstore-based context (best-effort)
+        # Vectorstore-based context (best-effort) – use semantic query text
         vec_text = ""
-        if getattr(self, "vectorstore", None) is not None:
+        if getattr(self, "vectorstore", None) is not None and window_text.strip():
             try:
-                docs = self.vectorstore.similarity_search(query=f"context around {int(ts)} seconds", k=2)
+                query_text = window_text[:512]
+                docs = self.vectorstore.similarity_search(query=query_text, k=2)
                 vec_text = " ".join(getattr(d, "page_content", str(d)) for d in docs)
             except Exception:
                 vec_text = ""
@@ -416,6 +419,79 @@ class TranscriptRAG:
 
         return sections
 
+    def _find_semantic_boundaries(
+            self, transcript: list[dict[str, Any]], distance_percentile: int = 25
+    ) -> list[dict[str, Any]]:
+        """
+        Finds topic boundaries by calculating embedding similarity between
+        adjacent transcript segments.
+
+        Args:
+            transcript: The full transcript.
+            distance_percentile: The percentile of similarity scores to use
+                as the "break" threshold. A lower value (e.g., 25) means
+                we only break on very large, obvious topic shifts.
+
+        Returns:
+            A list of transcript segments that are the *start* of a new
+            semantic section.
+        """
+
+        logger.info("Finding semantic boundaries...")
+        if not transcript:
+            return []
+
+        # 1. Get texts and embeddings for all segments
+        texts = [seg.get("text", "").strip() for seg in transcript]
+        # Filter out empty segments which can break the chain
+        valid_segments = [
+            (i, seg) for i, (seg, text) in enumerate(zip(transcript, texts)) if text
+        ]
+        if not valid_segments:
+            logger.warning("No valid text segments found in transcript.")
+            return []
+
+        original_indices = [i for i, seg in valid_segments]
+        valid_texts = [seg.get("text", "").strip() for i, seg in valid_segments]
+
+        embeddings = self.embeddings.embed_documents(valid_texts)
+
+        if len(embeddings) < 2:
+            return [transcript[0]]  # Not enough text to compare
+
+        # 2. Calculate cosine similarity between adjacent (N-1) segments
+        similarities = []
+        for i in range(len(embeddings) - 1):
+            sim = cosine_similarity(
+                [embeddings[i]],
+                [embeddings[i + 1]]
+            )[0][0]
+            similarities.append(sim)
+
+        # 3. Find the "dips" (topic breaks)
+        # We use a percentile as a threshold. Any similarity gap in the
+        # bottom Nth percentile is a potential new section.
+        threshold = np.percentile(similarities, distance_percentile)
+        logger.info(f"Semantic similarity threshold (p{distance_percentile}): {threshold:.3f}")
+
+        # Find indices where similarity drops below the threshold
+        boundary_indices = [0]  # Always include the first segment
+        for i, sim in enumerate(similarities):
+            if sim < threshold:
+                logger.info(f"Topic break detected at segment {i + 1} (Sim: {sim:.3f})")
+                boundary_indices.append(i + 1)
+
+        # De-duplicate and get the actual transcript segments
+        unique_segment_indices = sorted(list(set(boundary_indices)))
+
+        # Map back to original transcript indices
+        original_boundary_segments = [
+            transcript[original_indices[idx]] for idx in unique_segment_indices
+        ]
+
+        logger.info(f"Found {len(original_boundary_segments)} semantic sections.")
+        return original_boundary_segments
+
     def _generate_hierarchical_sections(
         self,
         transcript: list[dict[str, Any]],
@@ -424,10 +500,12 @@ class TranscriptRAG:
         subsections_per_main: int,
         retrieval_k: int,
     ) -> list[dict[str, Any]]:
-        # Generate main anchors first
-        main_sections = self._generate_flat_sections(
-            transcript, total_duration, main_sections_count, retrieval_k
-        )
+        """Generate hierarchical sections using semantic boundaries and RAG context."""
+
+        # 1. Find semantic main sections (ignoring main_sections_count in favor of data-driven boundaries)
+        main_sections = self._find_semantic_boundaries(transcript, distance_percentile=25)
+        if not main_sections:
+            return []
 
         sections: list[dict[str, Any]] = []
 
@@ -444,41 +522,41 @@ class TranscriptRAG:
                 title = title[0].upper() + title[1:]
             return title
 
-        for idx, main in enumerate(main_sections):
-            main_start = float(main.get("start", 0.0))
-            base_title = str(main.get("title", ""))
+        for idx, main_seg in enumerate(main_sections):
+            main_start = float(main_seg.get("start", 0.0))
+            base_query_text = main_seg.get("text", "")
 
-            # Use multi-stage LLM refinement by default (disabled via USE_LLM_TITLES=false)
             use_llm_titles = os.getenv("USE_LLM_TITLES", "true").lower() == "true"
 
-            if use_llm_titles:
-                # Try LLM refinement (often fails with small models)
+            if use_llm_titles and getattr(self, "vectorstore", None) is not None and base_query_text.strip():
                 try:
-                    context = self._aggregate_context(transcript, main_start)
+                    docs = self.vectorstore.similarity_search(
+                        query=base_query_text,
+                        k=max(1, retrieval_k),
+                    )
+                    context = base_query_text + "\n" + "\n".join(
+                        getattr(d, "page_content", "") for d in docs
+                    )
                     refined = self._refine_title_with_llm(context)
                     if refined and any(c.isalpha() for c in refined):
                         logger.info(
-                            "[llama.cpp] Refined main title at %.1fs using %s: '%s' -> '%s'",
+                            "[llama.cpp] Refined main title at %.1fs using %s: '%s'",
                             main_start,
                             Path(self.model_path).name,
-                            base_title,
                             refined,
                         )
                         main_title = refined
                     else:
-                        logger.info("[llama.cpp] LLM returned weak title; using heuristic")
                         main_title = _aggregate_snippet(main_start)
                 except Exception:
                     logger.warning("[llama.cpp] Refinement failed; using heuristic")
                     main_title = _aggregate_snippet(main_start)
             else:
-                # Use heuristics only (faster, more reliable for small models)
                 main_title = _aggregate_snippet(main_start)
-                logger.debug("Using heuristic title at %.1fs: '%s'", main_start, main_title)
 
             sections.append({"title": main_title, "start": main_start, "level": 0})
 
-            # Determine window for subsections
+            # Subsections: keep time-based distribution within each semantic region
             if idx + 1 < len(main_sections):
                 next_start = float(main_sections[idx + 1].get("start", total_duration))
             else:
@@ -488,21 +566,20 @@ class TranscriptRAG:
             window_end = max(window_start + 1.0, next_start)
             window_len = window_end - window_start
 
+            if subsections_per_main <= 0:
+                continue
+
             for si in range(subsections_per_main):
                 frac = (si + 1) / (subsections_per_main + 1)
                 sub_ts = window_start + frac * window_len
                 if sub_ts > total_duration:
                     sub_ts = total_duration
 
-                # Improved heuristic subsection titles (filter garbage better)
                 sub_nearest = min(transcript, key=lambda s: abs(s.get("start", 0) - sub_ts))
                 sub_title = self._clean_title_tokens(sub_nearest.get("text", ""), self.detected_language)
 
-                # Additional check: reject if title is still numeric/garbage after cleaning
                 if (not any(c.isalpha() for c in sub_title)) or re.search(r"\d{3,}", sub_title):
                     sub_title = _aggregate_snippet(sub_ts)
-
-                # Final check: ensure it's not a single short word or connector
                 words = re.findall(r"[A-Za-zÄÖÜäöüß]{3,}", sub_title)
                 if len(words) < 2:
                     sub_title = _aggregate_snippet(sub_ts)

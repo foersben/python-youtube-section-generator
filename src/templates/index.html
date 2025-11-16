@@ -23,12 +23,32 @@
                 </div>
                 
                 <div class="settings">
+                    <div class="form-group row-two-columns">
+                        <div class="column">
+                            <label for="pipeline_strategy">Processing Pipeline:</label>
+                            <select id="pipeline_strategy" data-default="{{ current_pipeline|default('legacy') }}">
+                                <option value="legacy">Legacy (single prompt)</option>
+                                <option value="split">Split stages (determine/enrich/finalize)</option>
+                            </select>
+                            <small>Strategy for crafting sections</small>
+                        </div>
+                        <div class="column">
+                            <label for="rag_mode">RAG Mode:</label>
+                            <select id="rag_mode" data-default="{{ current_rag|default('auto') }}">
+                                <option value="auto">Auto (duration based)</option>
+                                <option value="always">Always use RAG</option>
+                                <option value="never">Never use RAG</option>
+                            </select>
+                            <small>Retrieval-augmented generation usage</small>
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <label for="translate_to">Translate to:</label>
                         <input type="text" id="translate_to" placeholder="e.g., en">
                         <small>Leave blank for original language</small>
                     </div>
-                    
+
                     <div class="form-group">
                         <label>Section Settings:</label>
                         <div class="range-group">
@@ -84,7 +104,8 @@
         </main>
         
         <footer>
-            <p>Powered by Google Gemini AI | <a href="https://pypi.org/project/youtube-transcript-api/">YouTube Transcript API</a></p>
+            <p>Powered by Google Gemini AI | <a href="https://pypi.org/project/youtube-transcript-api/">YouTube Transcript API</a><br>
+            <small>Active pipeline: <span id="pipeline-active">{{ current_pipeline|default('legacy') }}</span></small></p>
         </footer>
     </div>
     
@@ -101,6 +122,66 @@
             const newVideoBtn = document.getElementById('new-video-btn');
             const resultVideoId = document.getElementById('result-video-id');
             const errorMessage = document.getElementById('error-message');
+            const pipelineSelect = document.getElementById('pipeline_strategy');
+            const pipelineLabel = document.getElementById('pipeline-active');
+            const pipelineStorageKey = 'yt_pipeline_strategy';
+            const ragSelect = document.getElementById('rag_mode');
+            const ragStorageKey = 'yt_rag_mode';
+
+            function updatePipelineLabel(value) {
+                if (pipelineLabel) {
+                    pipelineLabel.textContent = value || '';
+                }
+            }
+
+            function persistChoice(key, value) {
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        window.localStorage.setItem(key, value);
+                    }
+                } catch (err) {
+                    console.warn('Failed to persist preference', err);
+                }
+            }
+
+            if (pipelineSelect) {
+                let initial = pipelineSelect.dataset.default || pipelineSelect.value;
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const stored = window.localStorage.getItem(pipelineStorageKey);
+                        if (stored) {
+                            initial = stored;
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Failed to read pipeline preference', err);
+                }
+                pipelineSelect.value = initial;
+                updatePipelineLabel(initial);
+                pipelineSelect.addEventListener('change', () => {
+                    const choice = pipelineSelect.value;
+                    persistChoice(pipelineStorageKey, choice);
+                    updatePipelineLabel(choice);
+                });
+            }
+
+            if (ragSelect) {
+                let ragInitial = ragSelect.dataset.default || ragSelect.value;
+                try {
+                    if (typeof window !== 'undefined' && window.localStorage) {
+                        const storedRag = window.localStorage.getItem(ragStorageKey);
+                        if (storedRag) {
+                            ragInitial = storedRag;
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Failed to read RAG preference', err);
+                }
+                ragSelect.value = ragInitial;
+                ragSelect.addEventListener('change', () => {
+                    persistChoice(ragStorageKey, ragSelect.value);
+                });
+            }
 
             // Extract YouTube video ID from various URL formats
             function extractVideoId(url) {
@@ -157,7 +238,9 @@
                             'min_sections': document.getElementById('min_sections').value,
                             'max_sections': document.getElementById('max_sections').value,
                             'min_title_words': document.getElementById('min_title_words').value,
-                            'max_title_words': document.getElementById('max_title_words').value
+                            'max_title_words': document.getElementById('max_title_words').value,
+                            'pipeline_strategy': document.getElementById('pipeline_strategy').value,
+                            'rag_mode': document.getElementById('rag_mode').value
                         })
                     });
 
@@ -168,6 +251,15 @@
                         const out = data.sections_text ?? formatSections(data.sections);
                         sectionOutput.textContent = out;
                         resultVideoId.textContent = data.video_id || videoId;
+                        const pipelineLabel = document.getElementById('pipeline-active');
+                        if (pipelineLabel && data.pipeline_strategy) {
+                            pipelineLabel.textContent = data.pipeline_strategy;
+                            persistChoice(pipelineStorageKey, data.pipeline_strategy);
+                        } else if (pipelineLabel && pipelineSelect) {
+                            const fallback = pipelineSelect.value;
+                            pipelineLabel.textContent = fallback;
+                            persistChoice(pipelineStorageKey, fallback);
+                        }
                         resultSection.classList.remove('hidden');
                     } else {
                         showError(data.error || 'Unknown error');
@@ -222,6 +314,11 @@
                 resultSection.classList.add('hidden');
                 videoIdInput.value = '';
                 videoIdInput.focus();
+                const pipelineLabel = document.getElementById('pipeline-active');
+                if (pipelineLabel) {
+                    const current = pipelineSelect ? pipelineSelect.value : '';
+                    pipelineLabel.textContent = current;
+                }
             });
             
             function showError(message) {

@@ -17,6 +17,7 @@ from src.core.llm import LLMFactory
 from src.core.models import Section, SectionGenerationConfig, TranscriptSegment
 from src.core.retrieval import RAGSystem
 from src.core.services.translation import DeepLAdapter, TranslationProvider
+from src.core.services.pipeline import PipelineContext, build_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -75,45 +76,52 @@ class SectionGenerationService:
         # Decide strategy: RAG or direct
         use_rag = config.should_use_rag(total_duration)
         logger.info(
-            f"Generating sections (duration={total_duration:.0f}s, use_rag={use_rag})"
+            f"Generating sections (duration={total_duration:.0f}s, use_rag={use_rag}, pipeline={config.pipeline_strategy})"
         )
 
         if use_rag:
-            sections_data = self._generate_with_rag(
-                working_transcript, vid_id, gen_config
-            )
+            sections_data = self._generate_with_rag(working_transcript, vid_id, gen_config)
         else:
             sections_data = self._generate_direct(working_transcript, gen_config)
 
         # Convert to Section objects
         sections = [Section.from_dict(s) for s in sections_data]
 
-        # Translate titles back to source language if needed
-        if translated_for_generation is not None and translator is not None and source_lang:
-            logger.info("🔄 Back-translating %d section titles from EN-US to %s", len(sections), source_lang.upper())
-            translated_count = 0
-            failed_count = 0
-            try:
-                for idx, sec in enumerate(sections):
-                    original_title = sec.title
-                    try:
-                        sec.title = translator.translate(sec.title, target_lang=source_lang.upper(), source_lang="EN-US")
-                        translated_count += 1
-                        if idx < 3:  # Log first 3 for debugging
-                            logger.info("  Title %d: '%s' → '%s'", idx + 1, original_title, sec.title)
-                    except Exception as e:
-                        failed_count += 1
-                        logger.warning("Failed to translate title '%s': %s", original_title, e)
-                        # Keep English title if translation fails
-                logger.info("✅ Back-translated %d/%d titles to %s (%d failed)",
-                           translated_count, len(sections), source_lang.upper(), failed_count)
-            except Exception as e:
-                logger.error("Back-translation failed: %s (keeping EN titles)", e, exc_info=True)
+        pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
+        pipeline_context.metadata["generation_config"] = gen_config
+        if self.llm_provider is not None:
+            pipeline_context.metadata["llm_provider"] = self.llm_provider
+
+        # Preserve original language and translator for downstream stages (e.g. back-translation)
+        # Prefer explicit detected source_lang, fallback to marker in the raw transcript when present
+        original_lang = None
+        if transcript_dicts and isinstance(transcript_dicts, list) and transcript_dicts[0].get("original_language_code"):
+            original_lang = transcript_dicts[0].get("original_language_code")
+        else:
+            original_lang = source_lang
+        if original_lang:
+            pipeline_context.metadata["original_language_code"] = original_lang
+
+        # Expose the translation provider into the pipeline context so final stage can use it
+        if translator is not None:
+            pipeline_context.metadata["translation_provider"] = translator
+
+        stages = build_pipeline(pipeline_context)
+        for stage in stages:
+            logger.info("Running pipeline stage: %s", getattr(stage, "name", stage.__class__.__name__))
+            stage.run(pipeline_context)
+
+        sections = pipeline_context.sections or pipeline_context.metadata.get("enriched_sections", sections)
+
+        # NOTE: Back-translation of finalized English titles is handled by the
+        # FinalTitleTranslationStage in the pipeline (it will read
+        # "original_language_code" and use the provided translation provider).
+        # We avoid duplicating translation work here.
 
         # Apply validation and cleanup
         sections = self._validate_and_clean(sections, transcript_dicts)
 
-        logger.info(f"\u2705 Generated {len(sections)} sections")
+        logger.info(f"\u2705 Generated {len(sections)} sections via pipeline")
         return sections
 
     def _generate_with_rag(
@@ -151,24 +159,39 @@ class SectionGenerationService:
     def _normalize_transcript(
         self, transcript: list[dict[str, Any]] | list[TranscriptSegment]
     ) -> list[dict[str, Any]]:
-        """Normalize transcript to dict format."""
+        """Normalize transcript to dict format.
+
+        Accepts lists of dicts, TranscriptSegment objects (with .to_dict()),
+        or arbitrary objects with a .to_dict() or __dict__ mapping.
+        """
         if not transcript:
             raise ValueError("Transcript cannot be empty")
 
-        first = transcript[0]
-        # Already dicts
-        if isinstance(first, dict):
-            return transcript  # type: ignore[return-value]
+        normalized: list[dict[str, Any]] = []
+        for seg in transcript:
+            if isinstance(seg, dict):
+                normalized.append(seg)
+                continue
+            # Domain object with to_dict
+            to_dict = getattr(seg, "to_dict", None)
+            if callable(to_dict):
+                try:
+                    normalized.append(to_dict())
+                    continue
+                except Exception:
+                    # fallthrough to other attempts
+                    pass
+            # Fallback: dataclass or object with __dict__
+            if hasattr(seg, "__dict__"):
+                try:
+                    normalized.append({k: v for k, v in vars(seg).items()})
+                    continue
+                except Exception:
+                    pass
 
-        # Known domain object
-        if isinstance(first, TranscriptSegment):
-            return [seg.to_dict() for seg in transcript]
+            raise ValueError("Transcript items must be dict-like or provide to_dict()")
 
-        # Fallback: try to call to_dict on items
-        try:
-            return [getattr(seg, "to_dict")() for seg in transcript]
-        except Exception:
-            raise ValueError("Transcript must be a list of dicts or TranscriptSegment-like objects")
+        return normalized
 
     def _generate_video_id(self, transcript: list[dict[str, Any]]) -> str:
         """Generate video ID from transcript hash."""

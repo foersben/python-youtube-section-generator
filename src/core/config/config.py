@@ -53,7 +53,8 @@ class AppConfig:
         self.llm_context_size = int(os.getenv("LLM_CONTEXT_SIZE", "4096"))
 
         # RAG Configuration
-        self.use_rag = os.getenv("USE_RAG", "auto").lower()  # auto, always, never
+        # RAG strategy: 'always', 'auto', or 'never'. Default to 'auto' for balanced behavior.
+        self.use_rag = os.getenv("USE_RAG", "auto").lower()
         self.rag_hierarchical = os.getenv("RAG_HIERARCHICAL", "true").lower() == "true"
         self.rag_chunk_size = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
         self.rag_chunk_overlap = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
@@ -71,6 +72,8 @@ class AppConfig:
         self.default_max_sections = int(os.getenv("DEFAULT_MAX_SECTIONS", "20"))
         self.default_min_title_words = int(os.getenv("DEFAULT_MIN_TITLE_WORDS", "3"))
         self.default_max_title_words = int(os.getenv("DEFAULT_MAX_TITLE_WORDS", "7"))
+        self.pipeline_strategy = os.getenv("PIPELINE_STRATEGY", "legacy").lower()
+        self.pipeline_section_overshoot = float(os.getenv("PIPELINE_SECTION_OVERSHOOT", "0.1"))
 
         self._initialized = True
         logger.info("Configuration initialized")
@@ -107,10 +110,10 @@ class AppConfig:
         """
         if self.use_rag == "always":
             return True
-        elif self.use_rag == "never":
+        if self.use_rag == "never":
             return False
-        else:  # auto
-            return video_duration > self.rag_min_duration
+        # auto: fall back to duration-based heuristic
+        return video_duration > self.rag_min_duration
 
     def validate(self) -> list[str]:
         """Validate configuration and return list of issues.
@@ -141,8 +144,9 @@ class AppConfig:
             "rag_hierarchical": self.rag_hierarchical,
             "llm_temperature": self.llm_temperature,
             "embeddings_model": self.embeddings_model,
+            "pipeline_strategy": self.pipeline_strategy,
+            "pipeline_section_overshoot": self.pipeline_section_overshoot,
         }
 
 
 __all__ = ["AppConfig"]
-

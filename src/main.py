@@ -60,6 +60,12 @@ def main() -> None:
         action="store_true",
         help="Disable hierarchical section generation"
     )
+    parser.add_argument(
+        "--pipeline-strategy",
+        default=os.getenv("PIPELINE_STRATEGY", "legacy"),
+        choices=["legacy", "split"],
+        help="Processing pipeline strategy (legacy | split)"
+    )
 
     args = parser.parse_args()
 
@@ -101,6 +107,7 @@ def main() -> None:
             use_hierarchical=not args.no_hierarchical,
             temperature=0.2,  # Low temperature for consistent output
         )
+        os.environ["PIPELINE_STRATEGY"] = args.pipeline_strategy
         print(f"  Sections: {generation_config.min_sections}-{generation_config.max_sections}")
         print(f"  Title words: 3-7")
         print(f"  Hierarchical: {generation_config.use_hierarchical}")
