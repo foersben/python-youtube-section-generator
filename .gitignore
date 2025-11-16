@@ -14,3 +14,9 @@ site/
 setup-act.sh
 .actrc
 .github/
+.idea
+bin
+poetry.toml
+transcript.json
+webapp-linux
+youtube_sections.txt
