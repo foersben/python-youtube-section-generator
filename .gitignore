@@ -10,3 +10,4 @@ models/
 .chromadb/
 youtube_sections.txt
 .secrets
+site/
