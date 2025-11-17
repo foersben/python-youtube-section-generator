@@ -55,6 +55,7 @@ include = '\.pyi?$'
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = ["scripts/obsolete/**", "tests/scripts/**", ".github/**"]
 
 [tool.ruff.lint]
 select = [
