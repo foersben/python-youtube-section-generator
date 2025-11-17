@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -243,8 +244,6 @@ def generate_sections() -> Response:
 
         def _is_valid_title(title: str) -> bool:
             """Check if title looks like a valid section title (not garbage)."""
-            import re
-
             # Must have letters
             if not _has_letter(title):
                 return False
@@ -272,9 +271,6 @@ def generate_sections() -> Response:
 
             return True
 
-        import re
-
-        for s in sections_data:
             title = str(s.get("title", "")).strip()
 
             # Only replace if title looks truly invalid
