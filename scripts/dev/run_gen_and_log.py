@@ -7,10 +7,11 @@ This script is intended as a reproducible verifier: it will
 - call cleanup()
 - write structured logs to scripts/gen_run.log
 """
+
 import json
 import logging
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 from src.core.services.section_generation import SectionGenerationService
 
@@ -55,4 +56,3 @@ except Exception as e:
 
 logger.info("Run finished")
 print(f"Wrote log to {LOG_PATH}")
-

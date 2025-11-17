@@ -1,7 +1,8 @@
 """Tests for local LLM client functionality."""
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 import torch
 
 

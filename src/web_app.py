@@ -5,26 +5,35 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify, render_template, request, send_file, Response, after_this_request
+from flask import (
+    Flask,
+    Response,
+    after_this_request,
+    jsonify,
+    render_template,
+    request,
+    send_file,
+)
 
 # Import refactored modules
 from src.core import formatting
-from src.core.transcript import extract_transcript, extract_video_id
+from src.core.models.models import Section, SectionGenerationConfig
 from src.core.services.section_generation import SectionGenerationService
-from src.core.models.models import SectionGenerationConfig, Section
-from src.utils.logging_config import get_logger
+from src.core.transcript import extract_transcript, extract_video_id
 
 # Set up centralized logging
-from src.utils.logging_config import setup_logging
+from src.utils.logging_config import get_logger, setup_logging
+
 setup_logging(
     level="INFO",
     log_file="logs/web_app.log" if not getattr(sys, "frozen", False) else None,
-    colored=True
+    colored=True,
 )
 
 # Suppress noisy Flask/Werkzeug logs in development
 import logging
-logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 logger = get_logger(__name__)
 
@@ -135,7 +144,8 @@ def generate_sections() -> Response:
         # Parse raw transcript if provided (we'll compute a synthetic video_id)
         raw_transcript_json = request.form.get("transcript_json")
         if raw_transcript_json:
-            import json, hashlib
+            import hashlib
+            import json
 
             try:
                 parsed_temp = json.loads(raw_transcript_json)
@@ -150,7 +160,10 @@ def generate_sections() -> Response:
             transcript_data = parsed_temp
         else:
             if not video_url:
-                return jsonify({"success": False, "error": "Missing video_id or transcript_json"}), 400
+                return (
+                    jsonify({"success": False, "error": "Missing video_id or transcript_json"}),
+                    400,
+                )
             try:
                 video_id = extract_video_id(video_url)
                 logger.info(f"Extracted Video ID: {video_id}")
@@ -206,11 +219,13 @@ def generate_sections() -> Response:
             # Likely no LLM provider configured; return helpful error
             logger.exception("LLM generation failed: %s", e)
             return (
-                jsonify({
-                    "success": False,
-                    "error": str(e),
-                    "hint": "Set USE_LOCAL_LLM=true with a local model or configure GOOGLE_API_KEY for Gemini.",
-                }),
+                jsonify(
+                    {
+                        "success": False,
+                        "error": str(e),
+                        "hint": "Set USE_LOCAL_LLM=true with a local model or configure GOOGLE_API_KEY for Gemini.",
+                    }
+                ),
                 400,
             )
 
@@ -258,6 +273,7 @@ def generate_sections() -> Response:
             return True
 
         import re
+
         for s in sections_data:
             title = str(s.get("title", "")).strip()
 
@@ -267,7 +283,12 @@ def generate_sections() -> Response:
                 mins = int(start // 60)
                 secs = int(start % 60)
                 new_title = f"Section at {mins:02d}:{secs:02d}"
-                logger.info("Replacing invalid title '%s' at %.1fs with timestamp '%s'", title, start, new_title)
+                logger.info(
+                    "Replacing invalid title '%s' at %.1fs with timestamp '%s'",
+                    title,
+                    start,
+                    new_title,
+                )
                 s["title"] = new_title
 
         # Format for YouTube (text) — robustly handle formatting errors
@@ -275,7 +296,9 @@ def generate_sections() -> Response:
             youtube_sections_text = formatting.format_sections_for_youtube(sections_data)
         except Exception:
             logger.exception("Formatting sections failed; falling back to JSON list")
-            youtube_sections_text = "\n".join(f"{s['start']:.1f}s - {s['title']}" for s in sections_data)
+            youtube_sections_text = "\n".join(
+                f"{s['start']:.1f}s - {s['title']}" for s in sections_data
+            )
 
         logger.info(f"Successfully generated {len(sections_data)} sections for video {video_id}")
 
@@ -286,14 +309,20 @@ def generate_sections() -> Response:
             logger.exception("Service cleanup failed")
 
         # Return success
-        return jsonify({
-            "success": True,
-            "sections_text": youtube_sections_text,
-            "sections": sections_data,
-            "video_id": video_id,
-            "pipeline_strategy": pipeline_strategy or os.getenv("PIPELINE_STRATEGY", "legacy"),
-            "rag_mode": os.getenv("USE_RAG", "auto"),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "sections_text": youtube_sections_text,
+                    "sections": sections_data,
+                    "video_id": video_id,
+                    "pipeline_strategy": pipeline_strategy
+                    or os.getenv("PIPELINE_STRATEGY", "legacy"),
+                    "rag_mode": os.getenv("USE_RAG", "auto"),
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         logger.exception(f"Error generating sections: {e}")

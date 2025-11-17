@@ -8,4 +8,3 @@ Scripts live under `scripts/` and are organized by purpose:
 - `scripts/obsolete` — archived one-off scripts
 
 Most scripts are developer-facing. For test-related scripts converted into pytest tests, see `tests/scripts/`.
-

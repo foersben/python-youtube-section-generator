@@ -4,10 +4,11 @@ This was originally a script that executed at import time. Converted to a
 pytest test that uses tmp_path and is marked as heavy (`llm`).
 """
 
-import os
 import json
-import pytest
+import os
 from pathlib import Path
+
+import pytest
 
 from src.web_app import app
 
@@ -23,10 +24,12 @@ def test_webapp_generate_writes_response(tmp_path: Path) -> None:
 
     data = {
         "video_id": "TESTVIDEO",
-        "transcript_json": json.dumps([
-            {"start": 0.0, "text": "Intro", "duration": 3.0},
-            {"start": 3.0, "text": "Second part", "duration": 4.0},
-        ]),
+        "transcript_json": json.dumps(
+            [
+                {"start": 0.0, "text": "Intro", "duration": 3.0},
+                {"start": 3.0, "text": "Second part", "duration": 4.0},
+            ]
+        ),
     }
 
     out = tmp_path / "webapp_response.json"

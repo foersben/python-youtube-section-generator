@@ -52,5 +52,3 @@ Design notes
 - Use a plugin/strategy loader so stages can be swapped by config.
 - Keep LLM calls small and focused; stage outputs should be compact.
 - Provide instrumentation per-stage (timing, sample outputs) to evaluate quality.
-
-

@@ -5,10 +5,11 @@ This test is marked as a heavy LLM test and will be skipped by default unless
 and writes a JSON response to the provided temporary directory.
 """
 
-import os
 import json
-import pytest
+import os
 from pathlib import Path
+
+import pytest
 
 from src.web_app import app
 

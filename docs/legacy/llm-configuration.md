@@ -56,5 +56,3 @@ USE_LOCAL_LLM=true
 
 - If memory errors occur:
   - Use the quantized variant (q4) or increase system RAM / use swap cautiously.
-
-

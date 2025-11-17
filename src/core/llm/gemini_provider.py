@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class GeminiProvider(LLMProvider):
     """Google Gemini API provider (Adapter pattern).
-    
+
     Adapts the Google Gemini API to conform to our LLMProvider interface.
     """
 
@@ -35,12 +35,12 @@ class GeminiProvider(LLMProvider):
         try:
             from google import genai
             from google.genai import types
+
             self.genai = genai
             self.types = types
         except ImportError:
             raise RuntimeError(
-                "google-genai not installed. "
-                "Install with: poetry add google-genai"
+                "google-genai not installed. " "Install with: poetry add google-genai"
             )
 
         # Get API key
@@ -184,9 +184,7 @@ class GeminiProvider(LLMProvider):
                 except Exception as e:
                     logger.warning(f"Cache cleanup failed: {e}")
 
-    def _build_section_prompt(
-        self, transcript: list[dict[str, Any]], num_sections: int
-    ) -> str:
+    def _build_section_prompt(self, transcript: list[dict[str, Any]], num_sections: int) -> str:
         """Build prompt for section generation."""
         # Limit transcript for context window
         max_segments = 100

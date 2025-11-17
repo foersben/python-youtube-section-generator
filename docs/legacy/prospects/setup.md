@@ -26,5 +26,3 @@ Todos
 - [ ] Add `poetry` script entry in `pyproject.toml` to expose `setup_interactive` (priority: medium)
 - [ ] Add `--yes` and `--download-models` flags (priority: high)
 - [ ] Add unit tests for the validation logic (priority: medium)
-
-

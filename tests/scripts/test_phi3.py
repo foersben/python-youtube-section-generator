@@ -6,13 +6,16 @@ Skip at collection when the local model is missing or client cannot be imported.
 
 import os
 from pathlib import Path
+
 import pytest
 
 MODEL_ENV = os.getenv("LOCAL_MODEL_PATH", "models/Phi-3-mini-4k-instruct-q4.gguf")
 model_path = Path(MODEL_ENV)
 
 if not model_path.exists():
-    pytest.skip(f"Local model not present at {model_path}; skipping Phi-3 tests", allow_module_level=True)
+    pytest.skip(
+        f"Local model not present at {model_path}; skipping Phi-3 tests", allow_module_level=True
+    )
 
 try:
     from src.core.adapters.local_llm_client import LocalLLMClient
@@ -21,7 +24,10 @@ except Exception:
 
 HEAVY = os.getenv("RUN_HEAVY_INTEGRATION", "false").lower() in ("1", "true", "yes")
 if not HEAVY:
-    pytest.skip("Heavy integration tests disabled (set RUN_HEAVY_INTEGRATION=true to enable)", allow_module_level=True)
+    pytest.skip(
+        "Heavy integration tests disabled (set RUN_HEAVY_INTEGRATION=true to enable)",
+        allow_module_level=True,
+    )
 
 
 def test_local_llm_client_instantiation():

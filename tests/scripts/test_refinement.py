@@ -38,20 +38,20 @@ try:
     service = TranscriptRefinementService()
     print(f"✅ Service initialized (batch_size={service.default_batch_size})")
     print()
-    
+
     print("Running refinement...")
     refined_segments = service.refine_transcript_batch(test_segments, batch_size=5)
     print()
-    
+
     print("Refined segments:")
     for i, seg in enumerate(refined_segments, 1):
         print(f"{i}. [{seg['start']:.1f}s] {seg['text']}")
     print()
-    
+
     # Check for improvements
     original_text = " ".join(s["text"] for s in test_segments)
     refined_text = " ".join(s["text"] for s in refined_segments)
-    
+
     improvements = []
     if "um" in original_text.lower() and "um" not in refined_text.lower():
         improvements.append("Removed 'um'")
@@ -61,17 +61,18 @@ try:
         improvements.append("Removed 'äh'")
     if "hmm" in original_text.lower() and "hmm" not in refined_text.lower():
         improvements.append("Removed 'hmm'")
-    
+
     if improvements:
         print("✅ Refinement successful!")
         print(f"   Improvements: {', '.join(improvements)}")
     else:
         print("⚠️  No improvements detected")
         print("   (This might be expected if LLM chose to keep fillers for context)")
-    
+
 except Exception as e:
     print(f"❌ Error: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 
@@ -79,4 +80,3 @@ print()
 print("=" * 60)
 print("Test complete!")
 print("=" * 60)
-

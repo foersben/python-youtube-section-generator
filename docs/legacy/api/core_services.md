@@ -8,4 +8,3 @@ Overview of core business logic modules in `src/core/`:
 - `llm` — local and Gemini adapters
 
 Refer to inline module docstrings in `src/core/` for more details and code examples.
-

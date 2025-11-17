@@ -18,4 +18,3 @@ except Exception:
     core = None
 
 __all__ = ["core"]
-

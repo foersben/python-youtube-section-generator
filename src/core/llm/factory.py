@@ -9,8 +9,8 @@ from typing import Any
 
 from src.core.config import config
 from src.core.llm.base import LLMProvider
-from src.core.llm.local_provider import LocalLLMProvider
 from src.core.llm.gemini_provider import GeminiProvider
+from src.core.llm.local_provider import LocalLLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +56,7 @@ class SimpleHeuristicProvider(LLMProvider):
             raise ValueError("Transcript cannot be empty")
 
         # Compute total duration
-        total_duration = max(
-            seg.get("start", 0) + seg.get("duration", 0) for seg in transcript
-        )
+        total_duration = max(seg.get("start", 0) + seg.get("duration", 0) for seg in transcript)
         # If total_duration is zero, fallback to using number of segments
         if total_duration <= 0:
             # Use segment starts as section starts
@@ -74,9 +72,7 @@ class SimpleHeuristicProvider(LLMProvider):
         for i in range(num_sections):
             start_time = round(i * interval, 1)
             # Find nearest transcript segment
-            candidate = min(
-                transcript, key=lambda s: abs(s.get("start", 0) - start_time)
-            )
+            candidate = min(transcript, key=lambda s: abs(s.get("start", 0) - start_time))
             title = candidate.get("text", "").strip()
             # Use first sentence or first 6 words as title
             if "." in title:
@@ -86,9 +82,11 @@ class SimpleHeuristicProvider(LLMProvider):
             sections.append({"title": title_excerpt, "start": float(start_time)})
         return sections
 
-    def generate_text(self, prompt: str, max_tokens: int = 256, temperature: float | None = None) -> str:
+    def generate_text(
+        self, prompt: str, max_tokens: int = 256, temperature: float | None = None
+    ) -> str:
         # Very simple echo-like behavior for text generation (not used in production)
-        return prompt[: max_tokens]
+        return prompt[:max_tokens]
 
     def get_info(self) -> dict[str, Any]:
         return {"provider": "heuristic", "model": "simple-heuristic", "device": "cpu"}
@@ -111,17 +109,13 @@ class LLMFactory:
             try:
                 return LLMFactory.create_local_provider()
             except Exception:
-                logger.exception(
-                    "Failed to create local provider, falling back to NoOpProvider"
-                )
+                logger.exception("Failed to create local provider, falling back to NoOpProvider")
                 return SimpleHeuristicProvider()
         else:
             try:
                 return LLMFactory.create_gemini_provider()
             except Exception:
-                logger.exception(
-                    "Failed to create Gemini provider, falling back to NoOpProvider"
-                )
+                logger.exception("Failed to create Gemini provider, falling back to NoOpProvider")
                 return SimpleHeuristicProvider()
 
     @staticmethod

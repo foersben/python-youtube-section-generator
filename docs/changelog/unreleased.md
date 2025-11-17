@@ -20,5 +20,3 @@ All notable changes to the YouTube Transcript Section Generator project.
 - When making a release, follow the release workflow documented in
   `docs/changelog/index.md` to create an immutable release file and update
   release metadata.
-
-

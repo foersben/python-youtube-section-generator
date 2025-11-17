@@ -17,5 +17,3 @@ Long-term ideas
 - Add speaker diarization and multi-track transcripts support
 - Add multilingual fine-tuning and model evaluation harness
 - Provide a lightweight desktop/CLI bundled executable (portable)
-
-

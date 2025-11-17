@@ -28,7 +28,9 @@ class TranscriptRefinementService:
         # Get batch size from env (default: 50 for speed, can be tuned)
         self.default_batch_size = int(os.getenv("REFINEMENT_BATCH_SIZE", "50"))
 
-        logger.info(f"TranscriptRefinementService initialized (batch_size={self.default_batch_size})")
+        logger.info(
+            f"TranscriptRefinementService initialized (batch_size={self.default_batch_size})"
+        )
 
     def refine_transcript_segment(self, text: str, context: str = "") -> str:
         """Refine a single transcript segment using LLM.
@@ -83,7 +85,9 @@ class TranscriptRefinementService:
         refined_segments = []
         total_batches = (len(segments) + batch_size - 1) // batch_size
 
-        logger.info(f"Starting refinement of {len(segments)} segments in {total_batches} batches (batch_size={batch_size})")
+        logger.info(
+            f"Starting refinement of {len(segments)} segments in {total_batches} batches (batch_size={batch_size})"
+        )
 
         for i in range(0, len(segments), batch_size):
             batch = segments[i : i + batch_size]
@@ -96,14 +100,17 @@ class TranscriptRefinementService:
             context_after = ""
             if i + batch_size < len(segments):
                 context_after = " ".join(
-                    s["text"] for s in segments[i + batch_size : min(len(segments), i + batch_size + 1)]
+                    s["text"]
+                    for s in segments[i + batch_size : min(len(segments), i + batch_size + 1)]
                 )
 
             # Refine the batch together for better context
             refined_batch = self._refine_batch_with_context(batch, context_before, context_after)
             refined_segments.extend(refined_batch)
 
-            logger.info(f"Refined batch {i // batch_size + 1}/{total_batches} ({len(refined_segments)}/{len(segments)} segments)")
+            logger.info(
+                f"Refined batch {i // batch_size + 1}/{total_batches} ({len(refined_segments)}/{len(segments)} segments)"
+            )
 
         return refined_segments
 
@@ -216,7 +223,7 @@ Cleaned:"""
         # Split by sentences or natural breaks
         import re
 
-        sentences = re.split(r'(?<=[.!?])\s+', refined_text)
+        sentences = re.split(r"(?<=[.!?])\s+", refined_text)
 
         # If we have the same number of sentences as segments, map 1:1
         if len(sentences) == len(original_batch):
@@ -262,4 +269,3 @@ Cleaned:"""
 
 
 __all__ = ["TranscriptRefinementService"]
-

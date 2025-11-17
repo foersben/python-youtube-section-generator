@@ -17,4 +17,3 @@ poetry run pytest -q -m llm
 Guidelines:
 - Heavy tests are marked with `@pytest.mark.llm` and are skipped by default.
 - We serialize local model loads with a file lock (`models/.llm_load.lock`) to avoid concurrent loads.
-

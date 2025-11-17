@@ -1,7 +1,8 @@
 """Tests for transcript refinement service."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 from src.core.services.transcript_refinement import TranscriptRefinementService
 
@@ -9,7 +10,9 @@ from src.core.services.transcript_refinement import TranscriptRefinementService
 @pytest.fixture
 def mock_llm_provider():
     """Mock LLM provider for testing."""
-    with patch("src.core.services.transcript_refinement.LLMFactory.create_provider") as mock_factory:
+    with patch(
+        "src.core.services.transcript_refinement.LLMFactory.create_provider"
+    ) as mock_factory:
         mock_provider = Mock()
         mock_factory.return_value = mock_provider
         yield mock_provider
@@ -57,7 +60,9 @@ def test_refine_segment_with_context(mock_llm_provider):
 
 def test_refine_batch_preserves_timestamps(mock_llm_provider, sample_segments):
     """Test that batch refinement preserves timestamps."""
-    mock_llm_provider.generate_text.return_value = "I think we should start the project today and make sure everything is ready"
+    mock_llm_provider.generate_text.return_value = (
+        "I think we should start the project today and make sure everything is ready"
+    )
 
     service = TranscriptRefinementService()
     result = service.refine_transcript_batch(sample_segments, batch_size=3)
@@ -70,7 +75,9 @@ def test_refine_batch_preserves_timestamps(mock_llm_provider, sample_segments):
 
 def test_refine_batch_cleans_text(mock_llm_provider, sample_segments):
     """Test that batch refinement cleans the text content."""
-    mock_llm_provider.generate_text.return_value = "I think we should start the project today and make sure everything is ready"
+    mock_llm_provider.generate_text.return_value = (
+        "I think we should start the project today and make sure everything is ready"
+    )
 
     service = TranscriptRefinementService()
     result = service.refine_transcript_batch(sample_segments, batch_size=3)
@@ -135,4 +142,3 @@ def test_batch_context_building(mock_llm_provider, sample_segments):
     # Check that context was included in the prompt
     assert len(prompts_captured) > 0
     assert any("context" in prompt.lower() for prompt in prompts_captured)
-

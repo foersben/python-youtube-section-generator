@@ -5,11 +5,12 @@ Implements LLMProvider interface for local GGUF models.
 
 import logging
 import multiprocessing
+import os
 from pathlib import Path
 from typing import Any
 
-from src.core.llm.base import LLMProvider
 from src.core.config import config as _config
+from src.core.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,15 @@ class LocalLLMProvider(LLMProvider):
             )
 
         self.model_path = found
+
+        # Allow overriding via environment for experiments / CI
+        try:
+            env_n_ctx = os.getenv("LLM_N_CTX")
+            if env_n_ctx:
+                n_ctx = int(env_n_ctx)
+        except Exception:
+            logger.debug("Invalid LLM_N_CTX, falling back to provided n_ctx=%s", n_ctx)
+
         self.n_ctx = n_ctx
         self.n_threads = n_threads or multiprocessing.cpu_count()
         self.default_temperature = temperature
@@ -97,14 +107,31 @@ class LocalLLMProvider(LLMProvider):
             )
 
         # Check for GPU support and use it if available for faster inference
-        import os
-        n_gpu_layers = int(os.getenv("LLM_GPU_LAYERS", "-1"))  # -1 = auto (all layers if GPU available)
+        n_gpu_layers = int(
+            os.getenv("LLM_GPU_LAYERS", "-1")
+        )  # -1 = auto (all layers if GPU available)
+
+        # n_batch: make configurable by env var; default to 64 (GGML_KQ_MASK_PAD safe value)
+        try:
+            env_n_batch = int(os.getenv("LLM_N_BATCH", "64"))
+        except Exception:
+            env_n_batch = 64
+
+        # enforce a sensible minimum to avoid llama.cpp auto-adjust messages
+        n_batch = max(64, env_n_batch)
+
+        logger.debug(
+            "Initializing local LLM with n_ctx=%s, n_batch=%s, n_gpu_layers=%s",
+            n_ctx,
+            n_batch,
+            n_gpu_layers,
+        )
 
         self.llm = Llama(
             model_path=str(self.model_path),
             n_ctx=n_ctx,
             n_threads=self.n_threads,
-            n_batch=512,
+            n_batch=n_batch,
             n_gpu_layers=n_gpu_layers,  # Use GPU if available for massive speedup
             verbose=False,
         )
@@ -173,9 +200,7 @@ class LocalLLMProvider(LLMProvider):
             "threads": self.n_threads,
         }
 
-    def _build_section_prompt(
-        self, transcript: list[dict[str, Any]], num_sections: int
-    ) -> str:
+    def _build_section_prompt(self, transcript: list[dict[str, Any]], num_sections: int) -> str:
         """Build prompt for section generation."""
         max_segments = 50
         transcript_text = "\n".join(
@@ -205,7 +230,7 @@ JSON:"""
         if start != -1 and end > start:
             json_text = text[start:end]
             try:
-                sections = __import__('json').loads(json_text)
+                sections = __import__("json").loads(json_text)
                 if isinstance(sections, list):
                     return sections
             except Exception:
@@ -213,7 +238,7 @@ JSON:"""
 
         # Strategy 2: Regex extraction
         pattern = r'"title"\s*:\s*"([^"]+)"\s*,\s*"start"\s*:\s*(\d+\.?\d*)'
-        matches = __import__('re').findall(pattern, text, __import__('re').IGNORECASE)
+        matches = __import__("re").findall(pattern, text, __import__("re").IGNORECASE)
 
         sections = []
         for title, start in matches:

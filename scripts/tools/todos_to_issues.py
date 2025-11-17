@@ -17,7 +17,6 @@ from typing import List
 
 import requests
 
-
 TODO_FILE = "docs/prospects/todos.md"
 GITHUB_API = "https://api.github.com"
 
@@ -36,7 +35,9 @@ def parse_todos(path: str = TODO_FILE) -> List[TodoItem]:
         text = fh.read()
 
     # Simple parsing: lines starting with '- [ ]' or '- [x]'
-    pattern = re.compile(r"^- \[.\] (.+?)(?: — see `(.*?)`)?(?: \(priority: (.*?)\))?$", re.MULTILINE)
+    pattern = re.compile(
+        r"^- \[.\] (.+?)(?: — see `(.*?)`)?(?: \(priority: (.*?)\))?$", re.MULTILINE
+    )
     for m in pattern.finditer(text):
         title = m.group(1).strip()
         link = m.group(2) or ""
@@ -59,7 +60,9 @@ def create_issue(repo: str, title: str, body: str, token: str) -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--create", action="store_true", help="Create issues on GitHub")
-    parser.add_argument("--repo", type=str, default=None, help="owner/repo (defaults to git remote origin)")
+    parser.add_argument(
+        "--repo", type=str, default=None, help="owner/repo (defaults to git remote origin)"
+    )
     args = parser.parse_args()
 
     items = parse_todos()
@@ -92,4 +95,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

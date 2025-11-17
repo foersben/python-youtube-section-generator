@@ -47,4 +47,3 @@ multiple documents.
 - Keep API keys in `.env` and out of logs
 
 For original long-form explanations, see `docs/legacy/*`.
-

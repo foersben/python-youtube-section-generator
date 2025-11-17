@@ -23,4 +23,3 @@ LOCAL_MODEL_PATH=models/Phi-3-mini-4k-instruct-q4.gguf
 USE_LOCAL_LLM=true
 DEEPL_API_KEY=your_deepl_key
 ```
-

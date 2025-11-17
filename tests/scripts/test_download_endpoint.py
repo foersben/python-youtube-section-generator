@@ -6,10 +6,11 @@ The test is marked `llm` and will be skipped unless `RUN_HEAVY_INTEGRATION` is
 enabled or the test is explicitly requested.
 """
 
-import os
 import json
-import pytest
+import os
 from pathlib import Path
+
+import pytest
 
 from src.web_app import app
 
@@ -51,7 +52,9 @@ def test_download_sections_creates_file(tmp_path: Path) -> None:
         video_id = gen_body.get("video_id", "testvid")
 
         # Now call download endpoint
-        resp_dl = client.post("/download-sections", data={"sections": sections_text, "video_id": video_id})
+        resp_dl = client.post(
+            "/download-sections", data={"sections": sections_text, "video_id": video_id}
+        )
 
         assert resp_dl is not None
         # Check content-disposition header present

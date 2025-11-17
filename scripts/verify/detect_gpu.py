@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Comprehensive GPU and system detection for local LLM."""
 
-import sys
 import platform
+import sys
 from pathlib import Path
 
 print("=" * 70)
@@ -19,6 +19,7 @@ print()
 
 # CPU info
 import multiprocessing
+
 cpu_count = multiprocessing.cpu_count()
 print("💻 CPU Information:")
 print(f"  Cores: {cpu_count}")
@@ -28,6 +29,7 @@ print()
 # Memory info
 try:
     import psutil
+
     mem = psutil.virtual_memory()
     print("🧠 Memory Information:")
     print(f"  Total RAM: {mem.total / 1024**3:.1f} GB")
@@ -43,6 +45,7 @@ except ImportError:
 print("🔥 PyTorch Detection:")
 try:
     import torch
+
     print(f"  ✅ PyTorch version: {torch.__version__}")
     print(f"  Build: {torch.version.debug if hasattr(torch.version, 'debug') else 'Release'}")
     print()
@@ -59,17 +62,19 @@ print("1️⃣  NVIDIA CUDA:")
 if torch.cuda.is_available():
     print(f"  ✅ CUDA Available: YES")
     print(f"  CUDA Version: {torch.version.cuda}")
-    print(f"  cuDNN Version: {torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else 'N/A'}")
-    
+    print(
+        f"  cuDNN Version: {torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else 'N/A'}"
+    )
+
     num_gpus = torch.cuda.device_count()
     print(f"  GPU Count: {num_gpus}")
-    
+
     for i in range(num_gpus):
         props = torch.cuda.get_device_properties(i)
         print(f"    GPU {i}: {props.name}")
         print(f"      Memory: {props.total_memory / 1024**3:.1f} GB")
         print(f"      Compute Capability: {props.major}.{props.minor}")
-    
+
     # Test CUDA
     try:
         test_tensor = torch.zeros(1).cuda()
@@ -98,7 +103,7 @@ if hasattr(torch.backends, "mps"):
     if torch.backends.mps.is_available():
         print(f"  ✅ MPS Available: YES")
         print(f"  MPS Built: {torch.backends.mps.is_built()}")
-        
+
         # Test MPS
         try:
             test_tensor = torch.zeros(1).to("mps")
@@ -152,18 +157,18 @@ if torch.cuda.is_available():
         print(f"   Memory: {mem_gb:.1f} GB")
         print(f"   Speed: ⚡⚡⚡⚡ (Very Fast)")
         print(f"   4-bit quantization: {'✅ Recommended' if mem_gb >= 6 else '⚠️ May need it'}")
-        
+
 elif hasattr(torch.version, "hip") and torch.version.hip is not None:
     print(f"🎯 Use: AMD ROCm GPU")
     print(f"   Speed: ⚡⚡⚡ (Fast)")
     print(f"   Note: Uses CUDA-compatible API")
-    
+
 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
     print(f"🎯 Use: Apple Metal (MPS)")
     print(f"   Speed: ⚡⚡⚡ (Fast)")
     print(f"   Note: Uses unified memory")
     print(f"   Works on: M1/M2/M3 Macs")
-    
+
 else:
     print(f"🎯 Use: CPU")
     print(f"   Speed: ⚡ (Slow but works everywhere)")
@@ -184,7 +189,10 @@ print()
 systems = [
     ("NVIDIA GPUs (Windows/Linux)", torch.cuda.is_available()),
     ("AMD GPUs with ROCm (Linux)", hasattr(torch.version, "hip") and torch.version.hip is not None),
-    ("Apple Silicon (M1/M2/M3)", hasattr(torch.backends, "mps") and torch.backends.mps.is_available()),
+    (
+        "Apple Silicon (M1/M2/M3)",
+        hasattr(torch.backends, "mps") and torch.backends.mps.is_available(),
+    ),
     ("Older Intel Macs", True),  # CPU always works
     ("Windows (CPU)", True),
     ("Linux (CPU)", True),
@@ -197,4 +205,3 @@ for system, supported in systems:
 print()
 print("🎉 Your system is compatible with local LLM!")
 print()
-

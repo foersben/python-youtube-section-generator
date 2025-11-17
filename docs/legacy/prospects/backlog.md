@@ -9,5 +9,3 @@ roadmap or converted to actionable todos.
 - Research more efficient embedding models for CPU-only use
 - Experiment with on-device quantized models and lazy-loading strategies
 - Evaluate local fine-tuning for domain-specific transcript correction
-
-

@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import argparse
 import datetime
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHANGELOG_DIR = ROOT / "docs" / "changelog"
@@ -91,4 +91,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
