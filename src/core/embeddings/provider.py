@@ -62,7 +62,8 @@ class SentenceTransformerEmbeddings(EmbeddingsProvider):
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover - runtime check
             raise RuntimeError(
-                "sentence-transformers required. Install with: poetry run pip install sentence-transformers"
+                "sentence-transformers required. Install with: "
+                "poetry run pip install sentence-transformers"
             ) from exc
 
         logger.info("Loading embeddings model: %s on %s", model_name, device)
@@ -71,19 +72,38 @@ class SentenceTransformerEmbeddings(EmbeddingsProvider):
         self.device = device
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed documents and return native float lists."""
+        """Embed documents and return native float lists.
+
+        Uses the sentence-transformers v5.x asymmetric document encoder when
+        available, falling back to ``encode`` for older versions.
+        """
         import numpy as np  # local import to keep import time small
 
-        vectors = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+        # Prefer modern asymmetric API when present
+        encode_docs = getattr(self.model, "encode_document", None)
+        if callable(encode_docs):
+            vectors = encode_docs(texts, show_progress_bar=False, convert_to_numpy=True)
+        else:  # pragma: no cover - backward compatibility path
+            vectors = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+
         if isinstance(vectors, np.ndarray):
             return np.asarray(vectors).astype(float).tolist()
         return [[float(x) for x in v] for v in vectors]
 
     def embed_query(self, text: str) -> list[float]:
-        """Embed a single query and return a vector as list[float]."""
+        """Embed a single query and return a vector as list[float].
+
+        Uses the sentence-transformers v5.x asymmetric query encoder when
+        available, falling back to ``encode`` for older versions.
+        """
         import numpy as np
 
-        vec = self.model.encode([text], show_progress_bar=False, convert_to_numpy=True)[0]
+        encode_query = getattr(self.model, "encode_query", None)
+        if callable(encode_query):
+            vec = encode_query([text], show_progress_bar=False, convert_to_numpy=True)[0]
+        else:  # pragma: no cover - backward compatibility path
+            vec = self.model.encode([text], show_progress_bar=False, convert_to_numpy=True)[0]
+
         if isinstance(vec, np.ndarray):
             return np.asarray(vec).astype(float).tolist()
         return [float(x) for x in vec]

@@ -67,13 +67,12 @@ class DeepLAdapter(TranslationProvider):
 
         try:
             import deepl
-
-            self.deepl = deepl
         except ImportError as err:
             raise RuntimeError(
                 "deepl package not installed. Install with: poetry add deepl"
             ) from err
 
+        self.deepl = deepl
         self.translator = self.deepl.Translator(api_key)
         logger.info("Initialized DeepL translator")
 
@@ -85,8 +84,53 @@ class DeepLAdapter(TranslationProvider):
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._quota_file = self._cache_dir / "deepl_quota.json"
 
+        # persistent translation cache
+        self._cache_file = self._cache_dir / "deepl_cache.json"
+        # use filelock to avoid concurrent writers
+        try:
+            from filelock import FileLock
+
+            self._cache_lock = FileLock(str(self._cache_file) + ".lock")
+        except Exception:
+            self._cache_lock = None
+
+        # load cache lazily
+        self._cache: dict[str, dict] | None = None
+
+    def _load_cache(self) -> dict[str, dict]:
+        if self._cache is not None:
+            return self._cache
+        data: dict[str, dict] = {}
+        try:
+            if self._cache_file.exists():
+                data = read_json_file(str(self._cache_file)) or {}
+        except Exception:
+            logger.debug("Failed to read DeepL cache file; starting fresh")
+            data = {}
+        self._cache = data
+        return data
+
+    def _save_cache(self) -> None:
+        if self._cache is None:
+            return
+        try:
+            if self._cache_lock is not None:
+                with self._cache_lock:
+                    write_to_file(self._cache, str(self._cache_file))
+            else:
+                write_to_file(self._cache, str(self._cache_file))
+        except Exception:
+            logger.exception("Failed to persist DeepL translation cache")
+
+    def _cache_key(self, text: str, target: str, source: str | None) -> str:
+        import hashlib
+
+        src = source or ""
+        key = hashlib.sha256((src + "::" + target + "::" + text).encode("utf-8"))
+        return key.hexdigest()
+
     def translate(self, text: str, target_lang: str, source_lang: str | None = None) -> str:
-        """Translate text using DeepL.
+        """Translate text using DeepL with cache lookup.
 
         Args:
             text: Text to translate.
@@ -99,6 +143,10 @@ class DeepLAdapter(TranslationProvider):
         Raises:
             RuntimeError: If translation fails.
         """
+        # Short-circuit empty
+        if not text:
+            return ""
+
         # Normalize English variants for DeepL API compatibility
         target_normalized = target_lang.upper()
         if target_normalized == "EN":
@@ -110,8 +158,27 @@ class DeepLAdapter(TranslationProvider):
             if source_normalized == "EN":
                 source_normalized = "EN-US"
 
+        # check cache
+        try:
+            cache = self._load_cache()
+            key = self._cache_key(text, target_normalized, source_normalized)
+            entry = cache.get(key)
+            if entry:
+                # Optional TTL support
+                ttl = int(os.getenv("TRANSLATION_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
+                ts = int(entry.get("ts", 0))
+                if ttl <= 0 or (int(time.time()) - ts) <= ttl:
+                    logger.debug("DeepL cache hit for key %s", key[:8])
+                    return entry.get("translated", "")
+                else:
+                    # expired
+                    logger.debug("DeepL cache expired for key %s", key[:8])
+                    cache.pop(key, None)
+        except Exception:
+            logger.debug("DeepL cache lookup failed; proceeding to API")
+
         # respect short-circuit if quota hit recently
-        import time
+        # 'time' is imported at module level; do not re-import here to avoid shadowing
 
         # reload persisted quota if present
         try:
@@ -124,35 +191,73 @@ class DeepLAdapter(TranslationProvider):
         if self._quota_disabled_until and time.time() < self._quota_disabled_until:
             raise RuntimeError("DeepL temporarily disabled due to previous quota errors")
 
-        try:
-            result = self.translator.translate_text(
-                text,
-                target_lang=target_normalized,
-                source_lang=source_normalized,
-            )
-            return str(result)
+        # Exponential backoff retry parameters
+        max_retries = int(os.getenv("DEEPL_MAX_RETRIES", "5"))
+        backoff_base = float(os.getenv("DEEPL_BACKOFF_BASE", "0.5"))
+        backoff_max = float(os.getenv("DEEPL_BACKOFF_MAX", "8"))
 
-        except Exception as e:
-            msg = str(e)
-            logger.error(f"DeepL translation failed: {e}")
-            # Detect quota exceeded messages and set a short disable period
-            if "Quota" in msg or "Quota exceeded" in msg or "456" in msg:
-                # determine cooldown from env or default to 1 hour
-                cooldown = int(os.getenv("DEEPL_COOLDOWN_SECONDS", "3600"))
-                self._quota_disabled_until = int(time.time()) + cooldown
-                # persist
+        import random
+
+        attempt = 0
+        while True:
+            try:
+                result = self.translator.translate_text(
+                    text,
+                    target_lang=target_normalized,
+                    source_lang=source_normalized,
+                )
+                translated = str(result)
+
+                # persist to cache
                 try:
-                    write_to_file(
-                        {"quota_disabled_until": self._quota_disabled_until}, str(self._quota_file)
-                    )
+                    cache = self._load_cache()
+                    key = self._cache_key(text, target_normalized, source_normalized)
+                    cache[key] = {"translated": translated, "ts": int(time.time())}
+                    self._save_cache()
                 except Exception:
-                    logger.debug("Failed to persist DeepL quota file")
-                raise TranslationQuotaExceeded(f"DeepL quota exceeded: {msg}") from e
-            # Rate limit 429 - raise transient exception to be possibly retried elsewhere
-            if "Too many requests" in msg or "429" in msg:
-                raise RuntimeError("DeepL rate limit / server busy: " + msg) from e
+                    logger.debug("Failed to write to DeepL cache")
 
-            raise RuntimeError(f"Translation failed: {e}") from e
+                return translated
+
+            except Exception as e:
+                msg = str(e)
+                logger.error(f"DeepL translation failed (attempt {attempt}): {e}")
+                # Detect quota exceeded messages and set a short disable period
+                if "Quota" in msg or "Quota exceeded" in msg or "456" in msg:
+                    # determine cooldown from env or default to 1 hour
+                    cooldown = int(os.getenv("DEEPL_COOLDOWN_SECONDS", "3600"))
+                    self._quota_disabled_until = int(time.time()) + cooldown
+                    # persist
+                    try:
+                        write_to_file(
+                            {"quota_disabled_until": self._quota_disabled_until},
+                            str(self._quota_file),
+                        )
+                    except Exception:
+                        logger.debug("Failed to persist DeepL quota file")
+                    raise TranslationQuotaExceeded(f"DeepL quota exceeded: {msg}") from e
+
+                # Rate limit / transient server busy (retryable)
+                if "Too many requests" in msg or "429" in msg or "rate limit" in msg.lower():
+                    if attempt >= max_retries:
+                        logger.error("DeepL retries exhausted (%d); last error: %s", attempt, msg)
+                        raise RuntimeError("DeepL rate limit / server busy: " + msg) from e
+                    # backoff with jitter
+                    backoff = min(backoff_max, backoff_base * (2**attempt))
+                    jitter = random.uniform(0, backoff * 0.1)
+                    sleep_for = backoff + jitter
+                    logger.info(
+                        "DeepL transient error, retrying in %.2fs (attempt %d/%d)",
+                        sleep_for,
+                        attempt + 1,
+                        max_retries,
+                    )
+                    time.sleep(sleep_for)
+                    attempt += 1
+                    continue
+
+                # Non-retryable error
+                raise RuntimeError(f"Translation failed: {e}") from e
 
     def translate_batch(
         self,
@@ -178,9 +283,7 @@ class DeepLAdapter(TranslationProvider):
             return []
 
         # Location for caching and quota persistence
-        cache_dir = Path(_config.project_root) / ".cache" / "translations"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        quota_file = cache_dir / "deepl_quota.json"
+        quota_file = self._quota_file
 
         # Load persisted quota info if present
         now = int(time.time())
@@ -205,33 +308,66 @@ class DeepLAdapter(TranslationProvider):
 
         results: list[str] = []
 
-        # Build batches
+        # load cache once
+        cache = self._load_cache()
+
+        # Determine which items need translation and which are cached
+        to_translate_indices: list[int] = []
+        cached_map: dict[int, str] = {}
+        for idx, txt in enumerate(texts):
+            try:
+                key = self._cache_key(
+                    txt, target_lang.upper(), (source_lang or "").upper() if source_lang else None
+                )
+                entry = cache.get(key)
+                if entry:
+                    ttl = int(os.getenv("TRANSLATION_CACHE_TTL_SECONDS", str(7 * 24 * 3600)))
+                    ts = int(entry.get("ts", 0))
+                    if ttl <= 0 or (int(time.time()) - ts) <= ttl:
+                        cached_map[idx] = entry.get("translated", "")
+                        continue
+                    else:
+                        # expired
+                        cache.pop(key, None)
+                to_translate_indices.append(idx)
+            except Exception:
+                to_translate_indices.append(idx)
+
+        # If everything cached, return in order
+        if not to_translate_indices:
+            return [cached_map[i] for i in range(len(texts))]
+
+        # Build batches over the indices needing translation
         i = 0
-        n = len(texts)
+        indices = to_translate_indices
+        n = len(indices)
         while i < n:
-            # expand window to include up to MAX_SEGMENTS but also respect char limit
             j = i
             chars = 0
-            while (
-                j < n
-                and (j - i) < MAX_SEGMENTS
-                and (chars + (len(texts[j]) if texts[j] else 0)) <= MAX_CHARS
-            ):
-                chars += len(texts[j]) if texts[j] else 0
+            cnt = 0
+            batch_indices: list[int] = []
+            while j < n and cnt < MAX_SEGMENTS:
+                idx = indices[j]
+                t = texts[idx] or ""
+                tlen = len(t)
+                if cnt > 0 and (chars + tlen) > MAX_CHARS:
+                    break
+                batch_indices.append(idx)
+                chars += tlen
+                cnt += 1
                 j += 1
 
-            if j == i:
-                # single segment too large; force at least one
-                j = min(i + 1, n)
+            # ensure at least one
+            if not batch_indices:
+                batch_indices = [indices[i]]
+                j = i + 1
 
-            batch = texts[i:j]
-
-            joined = separator.join(batch)
+            batch_texts = [texts[k] for k in batch_indices]
+            joined = separator.join(batch_texts)
             try:
                 translated_joined = self.translate(joined, target_lang, source_lang)
             except TranslationQuotaExceeded:
                 # persist the quota disable and re-raise
-                # determine cooldown from env
                 cooldown = int(os.getenv("DEEPL_COOLDOWN_SECONDS", "3600"))
                 quota_disabled_until = int(time.time()) + cooldown
                 try:
@@ -242,21 +378,59 @@ class DeepLAdapter(TranslationProvider):
 
             # split back
             parts = translated_joined.split(separator)
-            if len(parts) != len(batch):
+            if len(parts) != len(batch_texts):
                 logger.warning(
                     "DeepL batch translation returned %d parts for %d inputs; falling back to per-segment translate for that batch",
                     len(parts),
-                    len(batch),
+                    len(batch_texts),
                 )
-                # fallback: translate each segment individually (this may hit quota)
-                for t in batch:
-                    results.append(self.translate(t, target_lang, source_lang))
+                for k in batch_indices:
+                    translated_single = self.translate(texts[k], target_lang, source_lang)
+                    cache[
+                        self._cache_key(
+                            texts[k],
+                            target_lang.upper(),
+                            (source_lang or "").upper() if source_lang else None,
+                        )
+                    ] = {
+                        "translated": translated_single,
+                        "ts": int(time.time()),
+                    }
+                    results.append(translated_single)
             else:
-                results.extend(parts)
+                for off, k in enumerate(batch_indices):
+                    translated_part = parts[off]
+                    cache[
+                        self._cache_key(
+                            texts[k],
+                            target_lang.upper(),
+                            (source_lang or "").upper() if source_lang else None,
+                        )
+                    ] = {
+                        "translated": translated_part,
+                        "ts": int(time.time()),
+                    }
+                    results.append(translated_part)
 
+            # advance
             i = j
 
-        return results
+        # fill in cached results for other indices in order
+        final: list[str] = []
+        for idx in range(len(texts)):
+            if idx in cached_map:
+                final.append(cached_map[idx])
+            else:
+                # pop from results in the same sequence
+                final.append(results.pop(0))
+
+        # persist cache
+        try:
+            self._save_cache()
+        except Exception:
+            logger.debug("Failed to persist DeepL cache after batch")
+
+        return final
 
     def get_info(self) -> dict[str, str]:
         """Get provider information."""
@@ -294,10 +468,74 @@ class LlamaCppTranslator(TranslationProvider):
         self.model_path = model_path
         import multiprocessing
 
+        # Allow environment overrides for n_ctx and n_batch to utilize larger RAM
+        n_ctx = int(os.getenv("LOCAL_MODEL_N_CTX", "4096"))
+        n_batch = int(os.getenv("LOCAL_MODEL_N_BATCH", "512"))
+
+        # enforce sensible minimums to avoid llama.cpp warnings
+        min_batch = int(os.getenv("LOCAL_MODEL_MIN_BATCH", "64"))
+        if n_batch < min_batch:
+            logger.info(
+                "LOCAL_MODEL_N_BATCH (%d) is less than minimum required (%d); increasing to %d",
+                n_batch,
+                min_batch,
+                min_batch,
+            )
+            n_batch = min_batch
+
+        # Optional auto-detect of model n_ctx_train to fully utilize model capacity
+        auto_detect = os.getenv("LOCAL_MODEL_AUTO_DETECT_CTX", "true").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        detected_n_ctx: int | None = None
+        if auto_detect:
+            try:
+                # try to use llama-cpp-python directly to inspect the model
+                from llama_cpp import Llama as LlamaCPP  # type: ignore
+
+                logger.debug("Probing model for n_ctx_train using llama_cpp")
+                try:
+                    probe = LlamaCPP(
+                        model_path=self.model_path, n_ctx=1, n_threads=1, verbose=False
+                    )
+                    # llama_cpp exposes n_ctx_train via method or attribute
+                    if hasattr(probe, "n_ctx_train"):
+                        try:
+                            detected_n_ctx = int(probe.n_ctx_train())
+                        except Exception:
+                            detected_n_ctx = None
+                    elif hasattr(probe, "_model") and hasattr(probe._model, "n_ctx_train"):
+                        try:
+                            detected_n_ctx = int(probe._model.n_ctx_train())
+                        except Exception:
+                            detected_n_ctx = None
+                finally:
+                    try:
+                        # ensure we free resources
+                        del probe
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug("Auto-detect of model n_ctx_train failed: %s", e)
+
+        # If we detected a larger n_ctx from the model, use it
+        if detected_n_ctx and detected_n_ctx > n_ctx:
+            logger.info(
+                "Detected model n_ctx_train=%d which is larger than configured n_ctx=%d; using %d",
+                detected_n_ctx,
+                n_ctx,
+                detected_n_ctx,
+            )
+            n_ctx = detected_n_ctx
+
+        # create LlamaCpp with the computed parameters
         self.llm = LlamaCpp(
             model_path=self.model_path,
-            n_ctx=2048,
+            n_ctx=n_ctx,
             n_threads=multiprocessing.cpu_count(),
+            n_batch=n_batch,
             temperature=temperature,
             max_tokens=256,
             top_p=0.9,
