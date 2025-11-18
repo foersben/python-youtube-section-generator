@@ -6,7 +6,7 @@ across the project.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -46,7 +46,7 @@ class Section:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Section":
+    def from_dict(cls, data: dict[str, Any]) -> Section:
         """Create Section instance from dictionary-like data.
 
         Args:
@@ -55,15 +55,16 @@ class Section:
         Returns:
             Section instance.
         """
+        # Use safe coercions to avoid passing None to float()
+        raw_start = data.get("start")
+        raw_end = data.get("end")
+        raw_duration = data.get("duration")
+
         return cls(
             title=data.get("title") or data.get("name"),
-            start=float(data.get("start", 0.0)),
-            end=(
-                (float(data["end"]) if data.get("end") is not None else None)
-                if data.get("end") is not None
-                else None
-            ),
-            duration=(float(data.get("duration")) if data.get("duration") is not None else None),
+            start=float(raw_start or 0.0),
+            end=(float(raw_end) if raw_end is not None else None),
+            duration=(float(raw_duration) if raw_duration is not None else None),
             level=int(data.get("level", 0)),
             description=data.get("description"),
         )

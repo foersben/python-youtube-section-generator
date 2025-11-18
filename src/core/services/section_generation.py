@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from langdetect import detect as _lang_detect
 
@@ -32,8 +32,10 @@ class SectionGenerationService:
 
     def __init__(self) -> None:
         """Initialize section generation service."""
-        self.llm_provider = None
-        self.rag_system = None
+
+        # Typed attributes to satisfy static checks
+        self.llm_provider: Any = None
+        self.rag_system: Any = None
 
     def generate_sections(
         self,
@@ -51,13 +53,17 @@ class SectionGenerationService:
         Returns:
             List of Section objects.
         """
+
         # Normalize input
         transcript_dicts = self._normalize_transcript(transcript)
         vid_id = video_id or self._generate_video_id(transcript_dicts)
         gen_config = generation_config or SectionGenerationConfig()
 
         # Calculate duration
-        total_duration = max(seg["start"] + seg.get("duration", 0) for seg in transcript_dicts)
+        total_duration = max(
+            (seg.get("start", 0.0) or 0.0) + (seg.get("duration", 0.0) or 0.0)
+            for seg in transcript_dicts
+        )
 
         # Optional: translation pipeline (German -> English -> German)
         source_lang = self._detect_language(transcript_dicts)
@@ -145,7 +151,17 @@ class SectionGenerationService:
         video_id: str,
         config_obj: SectionGenerationConfig,
     ) -> list[dict[str, Any]]:
-        """Generate sections using RAG approach."""
+        """Generate sections using RAG approach.
+
+        Args:
+            transcript: Transcript segments as list of dicts.
+            video_id: Video identifier.
+            config_obj: Section generation configuration.
+
+        Returns:
+            List of section dicts with 'title' and 'start' keys.
+        """
+
         if self.rag_system is None:
             self.rag_system = RAGSystem()
         num_sections = (config_obj.min_sections + config_obj.max_sections) // 2
@@ -179,6 +195,7 @@ class SectionGenerationService:
         Accepts lists of dicts, TranscriptSegment objects (with .to_dict()),
         or arbitrary objects with a .to_dict() or __dict__ mapping.
         """
+
         if not transcript:
             raise ValueError("Transcript cannot be empty")
 
@@ -191,7 +208,8 @@ class SectionGenerationService:
             to_dict = getattr(seg, "to_dict", None)
             if callable(to_dict):
                 try:
-                    normalized.append(to_dict())
+                    result = to_dict()
+                    normalized.append(dict(result))
                     continue
                 except Exception:
                     # fallthrough to other attempts
@@ -199,7 +217,7 @@ class SectionGenerationService:
             # Fallback: dataclass or object with __dict__
             if hasattr(seg, "__dict__"):
                 try:
-                    normalized.append({k: v for k, v in vars(seg).items()})
+                    normalized.append(dict(vars(seg)))
                     continue
                 except Exception:
                     pass
@@ -209,7 +227,12 @@ class SectionGenerationService:
         return normalized
 
     def _generate_video_id(self, transcript: list[dict[str, Any]]) -> str:
-        """Generate video ID from transcript hash."""
+        """Generate video ID from transcript hash.
+
+        Args:
+            transcript: Transcript segments as list of dicts.
+        """
+
         import hashlib
 
         text = "".join(seg["text"] for seg in transcript[:100])
@@ -219,22 +242,28 @@ class SectionGenerationService:
         self, sections: list[Section], transcript: list[dict[str, Any]]
     ) -> list[Section]:
         """Validate and clean sections."""
-        max_time = max(seg["start"] + seg.get("duration", 0) for seg in transcript)
+        max_time = max(
+            (seg.get("start", 0.0) or 0.0) + (seg.get("duration", 0.0) or 0.0) for seg in transcript
+        )
         valid_sections = []
         for section in sections:
             # Validate timestamp
             if 0 <= section.start <= max_time:
-                # Clean title
+                # Clean title (ensure title is a string even if None)
                 section.title = self._clean_title(section.title)
-                if len(section.title) >= 3:
+                if len(section.title or "") >= 3:
                     valid_sections.append(section)
         # Sort by timestamp
         valid_sections.sort(key=lambda s: s.start)
         return valid_sections
 
-    def _clean_title(self, title: str) -> str:
+    def _clean_title(self, title: str | None) -> str:
         """Clean section title."""
+
         import re
+
+        if title is None:
+            title = ""
 
         # Remove prefixes
         prefixes = ["response:", "answer:", "title:", "section:", "===", "_____", "---"]
@@ -266,7 +295,7 @@ class SectionGenerationService:
         # Try DeepL first (preferred)
         if api_key:
             try:
-                translator = DeepLAdapter(api_key)
+                translator: TranslationProvider = DeepLAdapter(api_key)
                 logger.info("Using DeepL for translation")
                 return translator
             except Exception as e:
@@ -282,9 +311,9 @@ class SectionGenerationService:
         try:
             from src.core.services.translation import LlamaCppTranslator
 
-            translator = LlamaCppTranslator()
+            provider = cast(TranslationProvider, LlamaCppTranslator())
             logger.info("Using local LlamaCpp translator (fallback mode)")
-            return translator
+            return provider
         except Exception as e:
             logger.error(
                 "❌ CRITICAL: Failed to initialize local translator: %s\n"
@@ -325,8 +354,8 @@ class SectionGenerationService:
         MAX_BATCH_SIZE = 4500  # Leave buffer for special chars
         batches: list[tuple[str, list[int]]] = []  # (combined_text, segment_indices)
 
-        current_batch = []
-        current_indices = []
+        current_batch: list[str] = []
+        current_indices: list[int] = []
         current_size = 0
 
         for idx, seg in enumerate(transcript):

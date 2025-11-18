@@ -69,7 +69,7 @@ Use scopes to specify the area of change:
 ```
 feat(model): add energy normalization fallback for ring rendering
 
-Ensures energy rings are always visible even when normalization 
+Ensures energy rings are always visible even when normalization
 function is not provided by using energy/initial_energy ratio.
 ```
 
@@ -243,4 +243,3 @@ test/event-handlers
 ```
 
 Use descriptive names with type prefix and kebab-case.
-

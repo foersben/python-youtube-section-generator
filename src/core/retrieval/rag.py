@@ -20,10 +20,11 @@ from typing import Any, cast
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
+from src.core.embeddings import EmbeddingsFactory
+
 logger = logging.getLogger(__name__)
 
 # Centralized embeddings provider (CPU-only default)
-from src.core.embeddings import EmbeddingsFactory
 
 
 class TranscriptRAG:
@@ -45,12 +46,12 @@ class TranscriptRAG:
         # Try to import langchain text splitter; provide a small local fallback
         # so RAG can still operate (with reduced features) when langchain
         # isn't installed or was upgraded with breaking changes.
-        RecursiveCharacterTextSplitter = None
         try:
             # Preferred import (works with most langchain releases)
             from langchain.text_splitter import (
                 RecursiveCharacterTextSplitter,  # type: ignore
             )
+
         except Exception:
             # Some langchain releases may reorganize modules; try common alternatives
             try:
@@ -58,21 +59,21 @@ class TranscriptRAG:
                     CharacterTextSplitter as _CTS,  # type: ignore
                 )
 
-                class RecursiveCharacterTextSplitter(_CTS):  # type: ignore
+                class _FallbackRecursiveCharacterTextSplitter(_CTS):  # type: ignore
                     """Thin compatibility wrapper mapping to CharacterTextSplitter API."""
 
                     pass
 
+                RecursiveCharacterTextSplitter = _FallbackRecursiveCharacterTextSplitter
+
             except Exception:
                 # Fallback: provide a minimal local splitter implementation
-                import logging
-
                 logger.warning(
                     "langchain.text_splitter not available; using local fallback splitter. "
                     "Install 'langchain' for full functionality."
                 )
 
-                class RecursiveCharacterTextSplitter:
+                class _FallbackLocalRecursiveCharacterTextSplitter:
                     """Minimal fallback splitter that creates overlapping chunks.
 
                     This implements a tiny subset of LangChain's API used in this
@@ -109,18 +110,20 @@ class TranscriptRAG:
                         return chunks
 
                     def create_documents(
-                        self, texts: list[str], metadatas: list[dict[str, Any]] | None = None
+                        self, texts: list[str], metadatas: list[dict[str, Any] | None] | None = None
                     ):
-                        docs = []
+                        docs: list[object] = []
                         if metadatas is None:
                             metadatas = [None] * len(texts)
-                        for text, meta in zip(texts, metadatas):
+                        for text, meta in zip(texts, metadatas, strict=False):
                             for chunk in self._split_text(text):
                                 # create a lightweight document-like object
                                 docs.append(
                                     type("Doc", (), {"page_content": chunk, "metadata": meta})()
                                 )
                         return docs
+
+                RecursiveCharacterTextSplitter = _FallbackLocalRecursiveCharacterTextSplitter
 
         # Try to import LlamaCpp from langchain_community; if missing we let the
         # import error surface when attempting to use Llama functionality later.
@@ -156,8 +159,10 @@ class TranscriptRAG:
 
         logger.info("Initializing RAG system (model=%s)", Path(self.model_path).name)
 
-        # Text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        # Text splitter (may be a third-party or our local fallback)
+        from typing import Any as _Any
+
+        self.text_splitter: _Any = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
@@ -186,8 +191,8 @@ class TranscriptRAG:
             verbose=False,
         )
 
-        self.vectorstore = None
-        self.current_video_id = None
+        self.vectorstore: _Any = None
+        self.current_video_id: str | None = None
         logger.info("\u2705 RAG system initialized")
 
     # ----------------------- Internal helpers -----------------------
@@ -306,7 +311,8 @@ class TranscriptRAG:
             logger.warning("Language detection failed: %s; defaulting to English", e)
             self.detected_language = "en"
 
-        chunks = self.text_splitter.create_documents(
+        # create_documents signature differs between implementations; ignore strict typing here
+        chunks = self.text_splitter.create_documents(  # type: ignore[call-arg]
             texts=[full_text],
             metadatas=[
                 {
@@ -496,7 +502,6 @@ class TranscriptRAG:
                 "äh",
                 "ähm",
                 "hmm",
-                "um",
                 "uh",
                 "er",
                 "also",
@@ -642,7 +647,9 @@ class TranscriptRAG:
         # 1. Get texts and embeddings for all segments
         texts = [seg.get("text", "").strip() for seg in transcript]
         # Filter out empty segments which can break the chain
-        valid_segments = [(i, seg) for i, (seg, text) in enumerate(zip(transcript, texts)) if text]
+        valid_segments = [
+            (i, seg) for i, (seg, text) in enumerate(zip(transcript, texts, strict=False)) if text
+        ]
         if not valid_segments:
             logger.warning("No valid text segments found in transcript.")
             return []
@@ -675,7 +682,7 @@ class TranscriptRAG:
                 boundary_indices.append(i + 1)
 
         # De-duplicate and get the actual transcript segments
-        unique_segment_indices = sorted(list(set(boundary_indices)))
+        unique_segment_indices = sorted(set(boundary_indices))
 
         # Map back to original transcript indices
         original_boundary_segments = [
@@ -807,13 +814,12 @@ class TranscriptRAG:
             title = str(s.get("title", "")).strip().strip("\"'`.,;:!?-–—")
             if not title or len(title) < 3:
                 title = "Section"
-            clean_sections.append(
-                {
-                    "title": title,
-                    "start": float(s.get("start", 0.0)),
-                    **({"level": s["level"]} if "level" in s else {}),
-                }
-            )
+            start_val = s.get("start", 0.0)
+            start_f = float(start_val or 0.0)
+            clean_entry: dict[str, Any] = {"title": title, "start": start_f}
+            if "level" in s:
+                clean_entry["level"] = s["level"]
+            clean_sections.append(clean_entry)
 
         return clean_sections
 
@@ -832,6 +838,7 @@ class TranscriptRAG:
                         self.vectorstore.shutdown()
                 except Exception:
                     logger.debug("Vectorstore shutdown failed", exc_info=True)
+
                 self.vectorstore = None
             if getattr(self, "llm", None) is not None and hasattr(self.llm, "close"):
                 try:
@@ -891,7 +898,8 @@ class TranscriptRAG:
             if not isinstance(topic, dict):
                 continue
             try:
-                start_val = float(topic.get("start"))
+                start_val_raw = topic.get("start")
+                start_val = float(start_val_raw or 0.0)
             except (TypeError, ValueError):
                 continue
             title_val = self._polish_title(str(topic.get("title", "")).strip())

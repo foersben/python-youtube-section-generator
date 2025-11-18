@@ -22,6 +22,7 @@ class AppConfig:
     """
 
     _instance: "AppConfig | None" = None
+    _initialized: bool
 
     def __new__(cls) -> "AppConfig":
         """Singleton implementation - only one instance allowed."""

@@ -180,7 +180,7 @@ def check_models():
 def check_api_keys():
     env = {}
     if ENV_PATH.exists():
-        with open(ENV_PATH, "r", encoding="utf-8") as f:
+        with open(ENV_PATH, encoding="utf-8") as f:
             for line in f:
                 if "=" in line:
                     k, v = line.strip().split("=", 1)

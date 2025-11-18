@@ -64,7 +64,7 @@ class SimpleHeuristicProvider(LLMProvider):
             titles = [seg.get("text", "").split(".")[0][:50] for seg in transcript]
             return [
                 {"title": t or f"Section {i+1}", "start": float(s)}
-                for i, (t, s) in enumerate(zip(titles, starts))
+                for i, (t, s) in enumerate(zip(titles, starts, strict=False))
             ][:num_sections]
 
         interval = total_duration / num_sections

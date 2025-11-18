@@ -19,7 +19,7 @@ exclude:
 - ✅ Scripts → `scripts/` ONLY (if needed)
 
 ## Project context (single-source hints)
- 
+
 * Repository layout:
     * Source code: `src/` - ALL source code here
     * Tests: `tests/` - ALL tests here (pytest only)
@@ -82,7 +82,7 @@ These rules protect correctness during change:
 ```py
 def compute_area(width: float, height: float) -> float:
     """Compute rectangle area.
-    
+
     Optional longer explanation of the behaviour that can stretch over multiple sentences.
 
     Args:
@@ -91,11 +91,11 @@ def compute_area(width: float, height: float) -> float:
 
     Returns:
         Area in square metres.
-        
+
     Raises:
       SpecificError: Some reason.
       AssertionError: Another reason.
     """
-    
+
     return width * height
 ```

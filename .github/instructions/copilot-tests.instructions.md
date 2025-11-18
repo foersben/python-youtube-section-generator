@@ -48,10 +48,10 @@ def test_feature_with_valid_input_returns_expected_output():
     """Test that feature handles valid input correctly."""
     # Arrange
     feature = Feature()
-    
+
     # Act
     result = feature.process("input")
-    
+
     # Assert
     assert result == "expected"
 ```
@@ -148,10 +148,10 @@ from unittest.mock import Mock, patch
 def test_feature_with_mocked_dependency():
     """Test feature with mocked external call."""
     mock_api = Mock(return_value="mocked")
-    
+
     with patch('module.api_call', mock_api):
         result = feature()
-    
+
     assert result == "expected"
     mock_api.assert_called_once()
 ```
@@ -192,11 +192,11 @@ def test_extract_transcript_returns_valid_data():
     mock_transcript.fetch.return_value = [
         Mock(text="Hello", start=0.0, duration=2.0)
     ]
-    
+
     with patch('youtube_transcript_api.YouTubeTranscriptApi.list') as mock_api:
         mock_api.return_value = [mock_transcript]
         result = extract_transcript("test_video_id")
-    
+
     assert len(result) > 0
     assert "text" in result[0]
     assert "start" in result[0]
@@ -210,12 +210,12 @@ def test_create_sections_generates_valid_timestamps():
         {"text": "Introduction", "start": 0.0, "duration": 5.0},
         {"text": "Main content", "start": 5.0, "duration": 10.0}
     ]
-    
+
     sections = create_section_timestamps(
-        transcript, 
+        transcript,
         section_count_range=(2, 5)
     )
-    
+
     assert len(sections) >= 2
     assert all("title" in s and "start" in s for s in sections)
     assert sections[0]["start"] < sections[1]["start"]
@@ -226,11 +226,11 @@ def test_create_sections_generates_valid_timestamps():
 def test_gemini_service_handles_retry_on_failure():
     """Test GeminiService retries on transient failures."""
     service = GeminiService()
-    
+
     with patch.object(service, '_call_api') as mock_call:
         mock_call.side_effect = [Exception("Timeout"), {"result": "success"}]
         result = service.generate_with_retry(prompt="test")
-    
+
     assert mock_call.call_count == 2
     assert result == {"result": "success"}
 ```
@@ -255,7 +255,7 @@ def test_generate_sections_endpoint_success(client):
         'min_sections': '5',
         'max_sections': '10'
     })
-    
+
     assert response.status_code == 200
     data = response.get_json()
     assert data['success'] is True
@@ -264,7 +264,7 @@ def test_generate_sections_endpoint_success(client):
 def test_generate_sections_missing_video_id_returns_error(client):
     """Test endpoint returns error when video_id is missing."""
     response = client.post('/generate-sections', data={})
-    
+
     assert response.status_code == 400
     data = response.get_json()
     assert data['success'] is False
@@ -280,9 +280,9 @@ def test_validate_sections_detects_invalid_timestamps():
         {"title": "End", "start": 999.0}     # Invalid: beyond transcript
     ]
     transcript = [{"text": "test", "start": 0.0, "duration": 10.0}]
-    
+
     valid, errors = _validate_sections(sections, transcript, (1, 3))
-    
+
     assert not valid
     assert any("out of" in err.lower() for err in errors)
 ```
@@ -317,11 +317,10 @@ def test_network():  # Missing scenario/expectation
 ```python
 def test_feature():
     """Brief one-line description of what this test verifies.
-    
+
     Optional: Additional context about why this test exists,
     edge cases it covers, or important setup details.
     """
 ```
 
 Keep test docstrings brief - the test name should be self-documenting.
-

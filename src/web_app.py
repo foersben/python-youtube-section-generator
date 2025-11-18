@@ -1,3 +1,4 @@
+import logging
 import os
 import re
 import sys
@@ -32,8 +33,6 @@ setup_logging(
 )
 
 # Suppress noisy Flask/Werkzeug logs in development
-import logging
-
 logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 logger = get_logger(__name__)
@@ -55,10 +54,17 @@ def _load_dotenv_next_to_executable() -> None:
 
 _load_dotenv_next_to_executable()
 
-if getattr(sys, "frozen", False):
-    base = Path(sys._MEIPASS)
-    tmpl_folder = base / "templates"
-    static_folder = base / "static"
+_frozen = getattr(sys, "frozen", False)
+if _frozen:
+    _meipass = getattr(sys, "_MEIPASS", None)
+    if _meipass:
+        base = Path(_meipass)
+        tmpl_folder = base / "templates"
+        static_folder = base / "static"
+    else:
+        base = Path(__file__).resolve().parent.parent
+        tmpl_folder = base / "src" / "templates"
+        static_folder = base / "static"
 else:
     base = Path(__file__).resolve().parent.parent
     tmpl_folder = base / "src" / "templates"
@@ -270,22 +276,6 @@ def generate_sections() -> Response:
                 return False
 
             return True
-
-            title = str(s.get("title", "")).strip()
-
-            # Only replace if title looks truly invalid
-            if not _is_valid_title(title):
-                start = float(s.get("start", 0.0))
-                mins = int(start // 60)
-                secs = int(start % 60)
-                new_title = f"Section at {mins:02d}:{secs:02d}"
-                logger.info(
-                    "Replacing invalid title '%s' at %.1fs with timestamp '%s'",
-                    title,
-                    start,
-                    new_title,
-                )
-                s["title"] = new_title
 
         # Format for YouTube (text) — robustly handle formatting errors
         try:

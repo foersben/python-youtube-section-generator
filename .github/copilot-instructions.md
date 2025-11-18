@@ -4,7 +4,7 @@
 
 **NEVER create files outside the project directory structure:**
 - ❌ NEVER use `/tmp/` for any files
-- ❌ NEVER use `/` (root) or any system directories  
+- ❌ NEVER use `/` (root) or any system directories
 - ❌ NEVER create files in the project root unless they are configuration files
 - ✅ Source code: ONLY in `src/`
 - ✅ Tests: ONLY in `tests/`
@@ -96,23 +96,23 @@ Brief description of what this module provides.
 
 class MyService:
     """Brief class description.
-    
+
     Longer explanation if needed.
-    
+
     Attributes:
         attr_name: Description of attribute.
         another_attr: Description.
     """
-    
+
     def process(self, param: str) -> dict[str, Any]:
         """Brief method description.
-        
+
         Args:
             param: Description of param.
-            
+
         Returns:
             Description of return value.
-            
+
         Raises:
             ValueError: When and why.
         """
@@ -123,17 +123,17 @@ For Flask routes, document request/response format:
 @app.route("/api/endpoint", methods=["POST"])
 def endpoint() -> jsonify:
     """Endpoint description.
-    
+
     Request Form Parameters:
         param1: Description
         param2: Description (optional)
-    
+
     Returns:
         JSON response with:
         - success: Boolean status
         - data: Result data (if successful)
         - error: Error message (if failed)
-    
+
     HTTP Status Codes:
         200: Success
         400: Bad request
@@ -221,7 +221,7 @@ def test_extract_transcript_success():
     """Test successful transcript extraction."""
     # Arrange
     video_id = "test_video_id"
-    
+
     # Act & Assert
     with patch('youtube_transcript_api.YouTubeTranscriptApi') as mock_api:
         mock_api.return_value.list.return_value = [mock_transcript]
@@ -240,13 +240,13 @@ logger = logging.getLogger(__name__)
 
 class MyService:
     """Service for handling external API interactions."""
-    
+
     def __init__(self, api_key_env: str = 'API_KEY'):
         api_key = os.getenv(api_key_env)
         if not api_key:
             logger.error(f"Environment variable {api_key_env} not set")
             raise ValueError(f"{api_key_env} not found")
-        
+
         self.client = SomeClient(api_key=api_key)
         logger.info("Initialized MyService")
 ```

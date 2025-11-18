@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +30,7 @@ class GeminiService:
         warnings.warn(
             "GeminiService adapter is deprecated; use src.core.llm.GeminiProvider instead",
             DeprecationWarning,
+            stacklevel=2,
         )
         self._provider = _get_gemini_provider(api_key_env=api_key_env, model=model)
         logger.info("Initialized GeminiService adapter")
@@ -38,7 +38,7 @@ class GeminiService:
     def generate(
         self,
         prompt: str,
-        cache_contents: List[str],
+        cache_contents: list[str],
         system_instruction: str = "",
         thinking_budget: int = 0,
         temperature: float = 0.0,

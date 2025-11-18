@@ -326,4 +326,3 @@ value: MyType = data['key']  # type: ignore[assignment]
 - [PEP 585](https://peps.python.org/pep-0585/) - Built-in generics
 - [PEP 604](https://peps.python.org/pep-0604/) - Union operator `|`
 - [typing module docs](https://docs.python.org/3/library/typing.html)
-

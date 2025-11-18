@@ -50,7 +50,7 @@ def _get_local_provider(
     with lock:
         logger.info(f"Acquired local LLM filelock: {lockfile}")
         mod = importlib.import_module("src.core.llm.local_provider")
-        LocalLLMProvider = getattr(mod, "LocalLLMProvider")
+        LocalLLMProvider = mod.LocalLLMProvider
         provider = LocalLLMProvider(
             model_path=model_path or None, n_ctx=n_ctx, n_threads=n_threads, temperature=temperature
         )
@@ -76,6 +76,7 @@ class LocalLLMClient:
         warnings.warn(
             "LocalLLMClient is deprecated; use src.core.llm.LocalLLMProvider or LLMFactory instead",
             DeprecationWarning,
+            stacklevel=2,
         )
         self._provider = _get_local_provider(
             model_path=model_path, n_ctx=n_ctx, n_threads=n_threads, temperature=temperature

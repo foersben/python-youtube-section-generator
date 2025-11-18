@@ -41,7 +41,7 @@ try:
             mem = torch.cuda.get_device_properties(i).total_memory / 1024**3
             print(f"    - GPU {i}: {name} ({mem:.1f}GB)")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        print(f"  ✓ Apple MPS available: True")
+        print("  ✓ Apple MPS available: True")
     else:
         print(f"  ✓ CPU mode: {torch.get_num_threads()} threads")
 except ImportError:
@@ -124,7 +124,7 @@ if cache_dir.exists() and list(cache_dir.glob("models--*")):
     )
     print(f"  Model cache: {cache_size:.2f}GB")
 else:
-    print(f"  Model cache: 0GB (will be ~8GB after download)")
+    print("  Model cache: 0GB (will be ~8GB after download)")
 
 print()
 

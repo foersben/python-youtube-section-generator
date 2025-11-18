@@ -1,9 +1,6 @@
 import json
-import os
 import time
 from pathlib import Path
-
-import pytest
 
 from src.core.config import config
 from src.core.transcript.extractor import extract_transcript

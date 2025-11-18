@@ -3,7 +3,6 @@
 
 import platform
 import sys
-from pathlib import Path
 
 print("=" * 70)
 print("SYSTEM & GPU DETECTION")
@@ -60,7 +59,7 @@ print()
 # 1. NVIDIA CUDA
 print("1️⃣  NVIDIA CUDA:")
 if torch.cuda.is_available():
-    print(f"  ✅ CUDA Available: YES")
+    print("  ✅ CUDA Available: YES")
     print(f"  CUDA Version: {torch.version.cuda}")
     print(
         f"  cuDNN Version: {torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else 'N/A'}"
@@ -78,7 +77,7 @@ if torch.cuda.is_available():
     # Test CUDA
     try:
         test_tensor = torch.zeros(1).cuda()
-        print(f"  ✅ CUDA Verification: PASSED")
+        print("  ✅ CUDA Verification: PASSED")
     except Exception as e:
         print(f"  ⚠️  CUDA Verification: FAILED ({e})")
 else:
@@ -89,7 +88,7 @@ print()
 # 2. AMD ROCm
 print("2️⃣  AMD ROCm:")
 if hasattr(torch.version, "hip") and torch.version.hip is not None:
-    print(f"  ✅ ROCm Available: YES")
+    print("  ✅ ROCm Available: YES")
     print(f"  HIP Version: {torch.version.hip}")
     print("  Note: ROCm uses CUDA-compatible API")
 else:
@@ -101,13 +100,13 @@ print()
 print("3️⃣  Apple Metal (MPS):")
 if hasattr(torch.backends, "mps"):
     if torch.backends.mps.is_available():
-        print(f"  ✅ MPS Available: YES")
+        print("  ✅ MPS Available: YES")
         print(f"  MPS Built: {torch.backends.mps.is_built()}")
 
         # Test MPS
         try:
             test_tensor = torch.zeros(1).to("mps")
-            print(f"  ✅ MPS Verification: PASSED")
+            print("  ✅ MPS Verification: PASSED")
         except Exception as e:
             print(f"  ⚠️  MPS Verification: FAILED ({e})")
     else:
@@ -122,7 +121,7 @@ print()
 print("4️⃣  Intel GPU:")
 if hasattr(torch, "xpu") and hasattr(torch.xpu, "is_available"):
     if torch.xpu.is_available():
-        print(f"  ✅ Intel XPU Available: YES")
+        print("  ✅ Intel XPU Available: YES")
     else:
         print("  ❌ Intel XPU Available: NO")
 else:
@@ -132,9 +131,9 @@ print()
 # CPU Threads
 print("5️⃣  CPU Fallback:")
 num_threads = torch.get_num_threads()
-print(f"  ✅ Available: YES (universal)")
+print("  ✅ Available: YES (universal)")
 print(f"  Threads: {num_threads}")
-print(f"  Note: Works on all systems including older Intel Macs")
+print("  Note: Works on all systems including older Intel Macs")
 print()
 
 # Summary and Recommendation
@@ -147,33 +146,33 @@ if torch.cuda.is_available():
     num_gpus = torch.cuda.device_count()
     if num_gpus > 1:
         print(f"🎯 Use: Multi-GPU CUDA ({num_gpus} GPUs)")
-        print(f"   Speed: ⚡⚡⚡⚡⚡ (Excellent)")
-        print(f"   Config: Device will auto-distribute across GPUs")
+        print("   Speed: ⚡⚡⚡⚡⚡ (Excellent)")
+        print("   Config: Device will auto-distribute across GPUs")
     else:
         gpu_name = torch.cuda.get_device_name(0)
         mem_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        print(f"🎯 Use: Single GPU CUDA")
+        print("🎯 Use: Single GPU CUDA")
         print(f"   GPU: {gpu_name}")
         print(f"   Memory: {mem_gb:.1f} GB")
-        print(f"   Speed: ⚡⚡⚡⚡ (Very Fast)")
+        print("   Speed: ⚡⚡⚡⚡ (Very Fast)")
         print(f"   4-bit quantization: {'✅ Recommended' if mem_gb >= 6 else '⚠️ May need it'}")
 
 elif hasattr(torch.version, "hip") and torch.version.hip is not None:
-    print(f"🎯 Use: AMD ROCm GPU")
-    print(f"   Speed: ⚡⚡⚡ (Fast)")
-    print(f"   Note: Uses CUDA-compatible API")
+    print("🎯 Use: AMD ROCm GPU")
+    print("   Speed: ⚡⚡⚡ (Fast)")
+    print("   Note: Uses CUDA-compatible API")
 
 elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    print(f"🎯 Use: Apple Metal (MPS)")
-    print(f"   Speed: ⚡⚡⚡ (Fast)")
-    print(f"   Note: Uses unified memory")
-    print(f"   Works on: M1/M2/M3 Macs")
+    print("🎯 Use: Apple Metal (MPS)")
+    print("   Speed: ⚡⚡⚡ (Fast)")
+    print("   Note: Uses unified memory")
+    print("   Works on: M1/M2/M3 Macs")
 
 else:
-    print(f"🎯 Use: CPU")
-    print(f"   Speed: ⚡ (Slow but works everywhere)")
+    print("🎯 Use: CPU")
+    print("   Speed: ⚡ (Slow but works everywhere)")
     print(f"   Cores: {cpu_count}")
-    print(f"   Note: Compatible with all systems including older Intel Macs")
+    print("   Note: Compatible with all systems including older Intel Macs")
     print()
     print("   ⚡ Performance Tips:")
     print("     • Generation will take 30-120 seconds")

@@ -9,9 +9,9 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, Sequence, runtime_checkable
 
-from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api import FetchedTranscript, YouTubeTranscriptApi
 
 from src.core.config import config as _config
 from src.utils import file_io
@@ -19,28 +19,60 @@ from src.utils import file_io
 logger = logging.getLogger(__name__)
 
 
-def _convert_transcript_to_dict(transcript_data) -> list[dict[str, Any]]:
+@runtime_checkable
+class TranscriptObject(Protocol):
+    """Protocol describing a transcript-like object returned by some fetch methods.
+
+    Implementations (e.g., items returned by transcript_list.fetch()) typically
+    expose attributes `text`, `start`, and `duration`. We only model the
+    attributes this module reads.
+    """
+
+    text: Any
+    start: Any
+    duration: Any
+
+
+def _convert_transcript_to_dict(
+    transcript_data: Sequence[dict[str, Any] | TranscriptObject]
+) -> list[dict[str, Any]]:
     """Convert youtube-transcript-api result to serializable list of dicts.
 
     Args:
-        transcript_data: Raw transcript data from youtube-transcript-api.
+        transcript_data: Raw transcript data from youtube-transcript-api. Elements
+            may be mapping-like dicts or objects exposing attributes `text`,
+            `start`, and `duration`.
 
     Returns:
         List of dictionaries each containing 'text', 'start', and 'duration'.
     """
-    segments = []
-    for segment in transcript_data:
-        try:
-            text = segment.text
-            start = segment.start
-            duration = getattr(segment, "duration", 0.0)
-        except Exception:
-            # Fallback if segment is a dict
-            text = segment.get("text")
-            start = segment.get("start")
-            duration = segment.get("duration", 0.0)
 
-        segments.append({"text": str(text), "start": float(start), "duration": float(duration)})
+    segments: list[dict[str, Any]] = []
+    for segment in transcript_data:
+        # Handle mapping-like segments (preferred) first
+        if isinstance(segment, dict):
+            text = segment.get("text")
+            start = segment.get("start", 0.0)
+            duration = segment.get("duration", 0.0)
+        else:
+            # Treat as an object implementing TranscriptObject protocol
+            # Use getattr with defaults to be defensive against odd shapes
+            text = getattr(segment, "text", None)
+            start = getattr(segment, "start", 0.0)
+            duration = getattr(segment, "duration", 0.0)
+
+        # Safe coercions to avoid float(None)
+        text_str = str(text) if text is not None else ""
+        try:
+            start_f = float(start or 0.0)
+        except Exception:
+            start_f = 0.0
+        try:
+            duration_f = float(duration or 0.0)
+        except Exception:
+            duration_f = 0.0
+
+        segments.append({"text": text_str, "start": start_f, "duration": duration_f})
     return segments
 
 
@@ -48,7 +80,7 @@ def extract_transcript(
     video_id: str,
     output_file: str | None = None,
     translate_to: str | None = None,
-    refine_with_llm: bool = None,
+    refine_with_llm: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Extract a YouTube transcript for processing and track original language.
 
@@ -74,6 +106,7 @@ def extract_transcript(
     Raises:
         Exception: If transcript extraction fails.
     """
+
     try:
         ytt_api = YouTubeTranscriptApi()
 
@@ -92,7 +125,7 @@ def extract_transcript(
         # to external translation services.
         def _fetch_preferred_transcript(
             desired_langs: list[str],
-        ) -> tuple[list[dict[str, Any]], str]:
+        ) -> tuple[FetchedTranscript, str | None | Any] | tuple[FetchedTranscript, str | Any]:
             """Return (fetched_segments, language_code) using YT translate when possible.
 
             Strategy:
@@ -101,7 +134,17 @@ def extract_transcript(
             3. If not found, and original is translatable, call original_transcript.translate(target)
                (YouTube's server-side translate feature) and fetch.
             4. If still not available, fall back to returning the original fetched segments.
+
+            Args:
+                desired_langs: List of desired language codes in order of preference.
+
+            Returns:
+                Tuple of (fetched_segments, language_code).
+
+            Raises:
+                Exception: If no transcript could be fetched.
             """
+
             # 1) Try direct fetch with preferred languages (may return native or translated)
             try:
                 fetched_try = ytt_api.fetch(video_id, languages=desired_langs)
@@ -216,7 +259,11 @@ def extract_transcript(
                         # Translate in batch to reduce API calls and avoid quick quota exhaustion
                         original_segments = fetched or original_transcript.fetch()
                         texts = [
-                            seg.get("text") if isinstance(seg, dict) else getattr(seg, "text", "")
+                            str(
+                                seg.get("text")
+                                if isinstance(seg, dict)
+                                else getattr(seg, "text", "")
+                            )
                             for seg in original_segments
                         ]
 
@@ -267,22 +314,41 @@ def extract_transcript(
 
                         if translated_texts:
                             translated_segments = []
-                            for seg, new_text in zip(original_segments, translated_texts):
-                                start = (
+                            for seg, new_text in zip(
+                                original_segments, translated_texts, strict=False
+                            ):
+                                # Coerce start/duration defensively and narrow types for mypy
+                                start_val = (
                                     seg.get("start")
                                     if isinstance(seg, dict)
                                     else getattr(seg, "start", 0.0)
                                 )
-                                duration = (
-                                    seg.get("duration", 0.0)
+                                if isinstance(start_val, (int, float, str)):
+                                    try:
+                                        start = float(start_val)
+                                    except Exception:
+                                        start = 0.0
+                                else:
+                                    start = 0.0
+
+                                duration_val = (
+                                    seg.get("duration")
                                     if isinstance(seg, dict)
                                     else getattr(seg, "duration", 0.0)
                                 )
+                                if isinstance(duration_val, (int, float, str)):
+                                    try:
+                                        duration = float(duration_val)
+                                    except Exception:
+                                        duration = 0.0
+                                else:
+                                    duration = 0.0
+
                                 translated_segments.append(
                                     {
                                         "text": str(new_text),
-                                        "start": float(start),
-                                        "duration": float(duration),
+                                        "start": start,
+                                        "duration": duration,
                                     }
                                 )
                             fetched = translated_segments
@@ -321,21 +387,38 @@ def extract_transcript(
                                 new_text = translator.translate(str(text), "EN")
                             except Exception:
                                 new_text = str(text)
-                            start = (
+                            # Narrow types to satisfy mypy and avoid float(None)
+                            s_val = (
                                 seg.get("start")
                                 if isinstance(seg, dict)
                                 else getattr(seg, "start", 0.0)
                             )
-                            duration = (
-                                seg.get("duration", 0.0)
+                            if isinstance(s_val, (int, float, str)):
+                                try:
+                                    start = float(s_val)
+                                except Exception:
+                                    start = 0.0
+                            else:
+                                start = 0.0
+
+                            d_val = (
+                                seg.get("duration")
                                 if isinstance(seg, dict)
                                 else getattr(seg, "duration", 0.0)
                             )
+                            if isinstance(d_val, (int, float, str)):
+                                try:
+                                    duration = float(d_val)
+                                except Exception:
+                                    duration = 0.0
+                            else:
+                                duration = 0.0
+
                             translated_segments.append(
                                 {
                                     "text": str(new_text),
-                                    "start": float(start),
-                                    "duration": float(duration),
+                                    "start": start,
+                                    "duration": duration,
                                 }
                             )
                         fetched = translated_segments
@@ -416,6 +499,7 @@ def extract_video_id(url: str) -> str:
     Raises:
         ValueError: If no valid video ID found.
     """
+
     import re
 
     patterns = [

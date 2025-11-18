@@ -18,7 +18,7 @@ Safely refactor code to improve structure, readability, or performance while mai
 ```python
 # ❌ Don't do multiple refactors at once
 # - Rename variables
-# - Extract methods  
+# - Extract methods
 # - Change algorithm
 # - Update types
 
@@ -62,12 +62,12 @@ def process_packet(self, node: int, packet: Packet, time: int) -> None:
         self.logger.debug(f"Node {node} has no energy")
         self.network.graph.nodes[node]['energy'] = 0
         return
-    
+
     # Validate buffer capacity
     if self.network.graph.nodes[node]['tx_rx_buffer'] >= self.config.tx_rx_buffer_size:
         self.logger.debug(f"Node {node} buffer full")
         return
-    
+
     # Process packet
     self.network.graph.nodes[node]['energy'] -= self.energy.calculate_rx_energy()
     self.network.graph.nodes[node]['tx_rx_buffer'] += 1
@@ -77,10 +77,10 @@ def process_packet(self, node: int, packet: Packet, time: int) -> None:
     """Process packet at node."""
     if not self._has_sufficient_energy(node):
         return
-    
+
     if not self._has_buffer_space(node):
         return
-    
+
     self._consume_energy(node)
     self._add_to_buffer(node)
 
@@ -134,13 +134,13 @@ def can_transmit(self, node: int) -> bool:
     """Check if node can transmit packet."""
     if self.graph.nodes[node]['energy'] <= 0:
         return False
-    
+
     if self.graph.nodes[node]['tx_count'] <= 0:
         return False
-    
+
     if self.graph.nodes[node]['tx_rx_buffer'] <= 0:
         return False
-    
+
     return True
 
 # Or: Single expression
@@ -166,7 +166,7 @@ class EnergyManager:
     BASE_TX_COST = 0.01
     DISTANCE_SCALE = 10
     TX_ENERGY_PER_UNIT = 0.1
-    
+
     def calculate_energy(self, distance: float) -> float:
         """Calculate transmission energy based on distance."""
         return self.BASE_TX_COST + (distance / self.DISTANCE_SCALE) * self.TX_ENERGY_PER_UNIT
@@ -197,7 +197,7 @@ def _check_and_deplete_if_insufficient(
     required_energy: float
 ) -> bool:
     """Check if node has energy, deplete if not.
-    
+
     Returns:
         True if node has sufficient energy, False otherwise.
     """
@@ -386,4 +386,3 @@ class NetworkState:
 5. **Algorithmic change** (riskiest, needs extensive testing)
 
 Start safe, test frequently, commit often.
-

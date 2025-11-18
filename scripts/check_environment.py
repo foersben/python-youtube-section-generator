@@ -12,7 +12,6 @@ cause the script to crash.
 
 from __future__ import annotations
 
-import importlib
 import platform
 import sys
 from importlib import metadata
@@ -62,8 +61,8 @@ def check_llama_cpp() -> None:
         print(f"llama-cpp-python import: OK (module: {lc.__name__})")
         # try access wrapper Llama
         try:
-            Llama = getattr(lc, "Llama", None)
-            print("Llama binding present: ", bool(Llama))
+            llama_binding = getattr(lc, "Llama", None)
+            print("Llama binding present: ", bool(llama_binding))
         except Exception:
             print("Could not find Llama class in llama_cpp module")
 
@@ -88,12 +87,12 @@ def check_llama_cpp() -> None:
 
         # Try a dummy instance creation; we will not pass a real model path
         try:
-            from llama_cpp import Llama as L  # type: ignore
+            from llama_cpp import Llama as LlamaClass  # type: ignore
 
             print("Attempting a dummy Llama instantiation (expected to fail) to observe logs...")
             try:
                 # This is intentionally pointing to a non-existing model: logs will reveal GPU attempts
-                L(model_path="DUMMY_PATH.gguf", n_gpu_layers=1, verbose=True)
+                LlamaClass(model_path="DUMMY_PATH.gguf", n_gpu_layers=1, verbose=True)
             except Exception as e:
                 print(f"Dummy Llama instantiation failed (as expected): {e}")
         except Exception:

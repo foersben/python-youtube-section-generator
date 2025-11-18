@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from src.core import formatting
 from src.core.models.models import Section, SectionGenerationConfig
 from src.core.services.section_generation import SectionGenerationService
-from src.core.transcript import extract_transcript, extract_video_id
+from src.core.transcript import extract_transcript
 from src.utils.logging_config import get_logger, setup_logging
 
 # Load environment variables once at startup
@@ -108,7 +108,7 @@ def main() -> None:
         )
         os.environ["PIPELINE_STRATEGY"] = args.pipeline_strategy
         print(f"  Sections: {generation_config.min_sections}-{generation_config.max_sections}")
-        print(f"  Title words: 3-7")
+        print("  Title words: 3-7")
         print(f"  Hierarchical: {generation_config.use_hierarchical}")
         print()
 

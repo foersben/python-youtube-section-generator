@@ -13,7 +13,6 @@ import argparse
 import os
 import re
 from dataclasses import dataclass
-from typing import List
 
 import requests
 
@@ -28,10 +27,10 @@ class TodoItem:
     priority: str | None = None
 
 
-def parse_todos(path: str = TODO_FILE) -> List[TodoItem]:
+def parse_todos(path: str = TODO_FILE) -> list[TodoItem]:
     """Parse the compact master todos file and return TodoItem list."""
-    items: List[TodoItem] = []
-    with open(path, "r", encoding="utf-8") as fh:
+    items: list[TodoItem] = []
+    with open(path, encoding="utf-8") as fh:
         text = fh.read()
 
     # Simple parsing: lines starting with '- [ ]' or '- [x]'

@@ -101,10 +101,10 @@ class LocalLLMProvider(LLMProvider):
         # failing early on missing models when llama-cpp isn't installed in test envs.
         try:
             from llama_cpp import Llama
-        except Exception:
+        except Exception as err:
             raise RuntimeError(
                 "llama-cpp-python not installed. Install with: poetry add llama-cpp-python"
-            )
+            ) from err
 
         # Check for GPU support and use it if available for faster inference
         n_gpu_layers = int(
@@ -247,7 +247,7 @@ JSON:"""
         if sections:
             return sections
 
-        raise ValueError(f"Could not extract valid JSON from response")
+        raise ValueError("Could not extract valid JSON from response")
 
     def _validate_sections(
         self, sections: list[dict[str, Any]], transcript: list[dict[str, Any]]

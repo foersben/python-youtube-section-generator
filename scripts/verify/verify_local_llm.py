@@ -30,7 +30,7 @@ try:
     import torch
 
     cuda_available = torch.cuda.is_available()
-    print(f"🖥️  Hardware:")
+    print("🖥️  Hardware:")
     print(f"  CUDA Available: {cuda_available}")
     if cuda_available:
         print(f"  CUDA Device: {torch.cuda.get_device_name(0)}")
@@ -64,7 +64,7 @@ if model_dirs:
     if len(model_dirs) > 3:
         print(f"    ... and {len(model_dirs) - 3} more")
 else:
-    print(f"  No cached models found. Model will be downloaded on first use.")
+    print("  No cached models found. Model will be downloaded on first use.")
 print()
 
 # Test import

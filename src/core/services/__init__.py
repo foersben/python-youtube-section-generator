@@ -4,9 +4,7 @@ for common use cases.
 """
 
 import logging
-from typing import Any
 
-from src.core.config import config
 from src.core.services.repository import (
     JSONFileRepository,
     Repository,

@@ -38,10 +38,10 @@ class GeminiProvider(LLMProvider):
 
             self.genai = genai
             self.types = types
-        except ImportError:
+        except ImportError as err:
             raise RuntimeError(
-                "google-genai not installed. " "Install with: poetry add google-genai"
-            )
+                "google-genai not installed. Install with: poetry add google-genai"
+            ) from err
 
         # Get API key
         key = api_key or os.getenv("GOOGLE_API_KEY")
@@ -238,7 +238,7 @@ JSON:"""
         if sections:
             return sections
 
-        raise ValueError(f"Could not extract valid JSON from response")
+        raise ValueError("Could not extract valid JSON from response")
 
     def _validate_sections(
         self, sections: list[dict[str, Any]], transcript: list[dict[str, Any]]

@@ -8,7 +8,6 @@ texts when DeepL is unavailable.
 from __future__ import annotations
 
 import logging
-import math
 import os
 import time
 from abc import ABC, abstractmethod
@@ -67,11 +66,13 @@ class DeepLAdapter(TranslationProvider):
             raise ValueError("DeepL API key cannot be empty")
 
         try:
-            import deepl  # type: ignore
+            import deepl
 
             self.deepl = deepl
-        except ImportError:
-            raise RuntimeError("deepl package not installed. " "Install with: poetry add deepl")
+        except ImportError as err:
+            raise RuntimeError(
+                "deepl package not installed. Install with: poetry add deepl"
+            ) from err
 
         self.translator = self.deepl.Translator(api_key)
         logger.info("Initialized DeepL translator")
@@ -228,7 +229,7 @@ class DeepLAdapter(TranslationProvider):
             joined = separator.join(batch)
             try:
                 translated_joined = self.translate(joined, target_lang, source_lang)
-            except TranslationQuotaExceeded as tqe:
+            except TranslationQuotaExceeded:
                 # persist the quota disable and re-raise
                 # determine cooldown from env
                 cooldown = int(os.getenv("DEEPL_COOLDOWN_SECONDS", "3600"))

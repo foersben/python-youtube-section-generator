@@ -9,7 +9,6 @@ import logging.handlers
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 class ColorFormatter(logging.Formatter):
@@ -35,7 +34,7 @@ class ColorFormatter(logging.Formatter):
 
 
 def setup_logging(
-    level: str = "INFO", log_file: Optional[str] = None, console: bool = True, colored: bool = True
+    level: str = "INFO", log_file: str | None = None, console: bool = True, colored: bool = True
 ) -> None:
     """Set up centralized logging configuration.
 
@@ -68,7 +67,7 @@ def setup_logging(
         console_handler.setLevel(numeric_level)
 
         if colored and sys.stdout.isatty():
-            formatter = ColorFormatter(base_format, date_format)
+            formatter: logging.Formatter = ColorFormatter(base_format, date_format)
         else:
             formatter = logging.Formatter(base_format, date_format)
 

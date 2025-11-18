@@ -148,10 +148,10 @@ from model.events.event_handler import EventHandler
 
 class CustomPacketHandler(EventHandler):
     """Handles packets with custom routing logic.
-    
+
     This handler implements special routing rules for...
     """
-    
+
     @override
     def handle(self, time: int, data: dict[str, object]) -> None:
         """Process packet with custom logic."""
@@ -312,4 +312,3 @@ Complete working examples.
 ## See Also
 Related features or documentation.
 ```
-

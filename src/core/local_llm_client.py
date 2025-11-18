@@ -91,7 +91,6 @@ class LocalLLMClient:
             raise ValueError("Transcript cannot be empty")
 
         # Minimal placeholder behavior: return num_sections empty titled sections
-        interval = max((seg.get("start", 0) for seg in transcript), default=0)
         return [
             {"title": f"Section {i+1}", "start": float(transcript[0].get("start", 0))}
             for i in range(num_sections)

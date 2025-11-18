@@ -71,7 +71,7 @@ class JSONFileRepository(Repository):
 
         except Exception as e:
             logger.error(f"Failed to save to {file_path}: {e}")
-            raise IOError(f"Save failed: {e}") from e
+            raise OSError(f"Save failed: {e}") from e
 
     def load(self, identifier: str) -> Any:
         """Load data from JSON file.
@@ -92,14 +92,14 @@ class JSONFileRepository(Repository):
             raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
             logger.info(f"Loaded data from {file_path}")
             return data
 
         except Exception as e:
             logger.error(f"Failed to load from {file_path}: {e}")
-            raise IOError(f"Load failed: {e}") from e
+            raise OSError(f"Load failed: {e}") from e
 
     def exists(self, identifier: str) -> bool:
         """Check if file exists.
@@ -133,7 +133,7 @@ class JSONFileRepository(Repository):
 
         except Exception as e:
             logger.error(f"Failed to delete {file_path}: {e}")
-            raise IOError(f"Delete failed: {e}") from e
+            raise OSError(f"Delete failed: {e}") from e
 
     def _get_file_path(self, identifier: str) -> Path:
         """Get full file path for identifier.

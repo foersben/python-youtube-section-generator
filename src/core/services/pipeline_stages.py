@@ -41,7 +41,7 @@ class DetermineSectionsStage:
     section_multiplier: float = 1.0
     name: str = "determine_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         if context.sections and not context.metadata.get("force_section_refresh", False):
             logger.debug("Using precomputed sections; determination skipped")
             context.metadata.setdefault("raw_sections", list(context.sections))
@@ -79,7 +79,7 @@ class EnrichSectionsStage:
 
     name = "enrich_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         sections = _normalize_sections(context.metadata.get("raw_sections") or context.sections)
         if not sections:
             logger.warning("Enrichment skipped because no sections present")
@@ -111,7 +111,7 @@ class FinalizeTitlesStage:
 
     name = "finalize_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         sections = _normalize_sections(
             context.metadata.get("enriched_sections")
             or context.metadata.get("raw_sections")
@@ -154,7 +154,7 @@ class FinalizeTitlesStage:
 class LooseSectionDiscoveryStage:
     name: str = "discover_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         provider = _ensure_provider(context)
         config_obj = _ensure_generation_config(context)
         min_count = max(2, config_obj.min_sections)
@@ -172,7 +172,7 @@ class LooseSectionDiscoveryStage:
 class IntervalParsingStage:
     name = "parse_intervals"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         raw_text = context.metadata.get("section_notes_text", "")
         if not raw_text:
             logger.warning("No section notes text available for parsing")
@@ -190,7 +190,7 @@ class BatchTitleDraftStage:
     batch_size: int = 4
     name: str = "draft_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         intervals = context.metadata.get("intervals", [])
         if not intervals:
             logger.warning("No intervals to title")
@@ -213,7 +213,7 @@ class BatchTitleDraftStage:
 class TitleDraftStructStage:
     name = "structure_title_drafts"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         drafts = context.metadata.get("title_draft_blocks", [])
         if not drafts:
             logger.warning("No draft blocks to structure")
@@ -263,7 +263,7 @@ class TitleDraftStructStage:
 class TitleOptimizationStage:
     name = "optimize_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         base_entries = context.metadata.get("title_candidates")
         if not base_entries:
             logger.warning("No title candidates to optimize")
@@ -282,7 +282,7 @@ class TitleOptimizationStage:
 class OptimizedTitleParsingStage:
     name = "parse_optimized_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         raw_text = context.metadata.get("optimized_titles_raw", "")
         payload = _safe_json_load(raw_text)
         if isinstance(payload, dict) and "sections" in payload:
@@ -306,7 +306,7 @@ class OptimizedTitleParsingStage:
 class FinalFormattingStage:
     name = "finalize_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         entries = context.metadata.get("optimized_titles") or context.metadata.get(
             "title_candidates"
         )
@@ -351,7 +351,7 @@ class FinalTitleTranslationStage:
 
     name = "final_title_translation"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         original_lang = context.metadata.get("original_language_code")
         if not original_lang or original_lang.lower() in {"en", "eng"}:
             logger.debug("Skipping title translation: original language '%s'", original_lang)
@@ -417,7 +417,7 @@ class FinalTitleTranslationStage:
 # ---------------------------------------------------------------------------
 
 
-def _ensure_provider(context: "PipelineContext"):
+def _ensure_provider(context: PipelineContext):
     provider = context.metadata.get("llm_provider")
     if provider is None:
         provider = LLMFactory.create_provider()
@@ -425,7 +425,7 @@ def _ensure_provider(context: "PipelineContext"):
     return provider
 
 
-def _ensure_generation_config(context: "PipelineContext") -> SectionGenerationConfig:
+def _ensure_generation_config(context: PipelineContext) -> SectionGenerationConfig:
     config_obj = context.metadata.get("generation_config")
     if isinstance(config_obj, SectionGenerationConfig):
         return config_obj

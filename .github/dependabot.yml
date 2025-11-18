@@ -12,4 +12,3 @@ updates:
       - dependency-name: "torch"
       - dependency-name: "torchvision"
       - dependency-name: "torchaudio"
-
