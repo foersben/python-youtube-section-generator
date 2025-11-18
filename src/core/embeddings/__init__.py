@@ -12,8 +12,8 @@ Usage:
 
 from __future__ import annotations
 
-from .provider import EmbeddingsProvider, SentenceTransformerEmbeddings
 from .factory import EmbeddingsFactory
+from .provider import EmbeddingsProvider, SentenceTransformerEmbeddings
 
 __all__ = [
     "EmbeddingsProvider",

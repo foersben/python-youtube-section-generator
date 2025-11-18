@@ -238,10 +238,10 @@ trusted repositories or dedicated runners.
 
 ## 12. FAQ and quick commands
 
-Q: Where do I run generated code before pushing?  
+Q: Where do I run generated code before pushing?
 A: Locally, inside the Poetry venv: `poetry install` → `poetry run pytest -q`.
 
-Q: How do I enable heavy tests locally?  
+Q: How do I enable heavy tests locally?
 A: Set env vars and run marked tests:
 
 ```bash

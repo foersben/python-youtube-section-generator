@@ -9,7 +9,6 @@ import logging.handlers
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 class ColorFormatter(logging.Formatter):
@@ -17,13 +16,13 @@ class ColorFormatter(logging.Formatter):
 
     # ANSI color codes
     COLORS = {
-        'DEBUG': '\033[36m',     # Cyan
-        'INFO': '\033[32m',      # Green
-        'WARNING': '\033[33m',   # Yellow
-        'ERROR': '\033[31m',     # Red
-        'CRITICAL': '\033[35m',  # Magenta
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
     }
-    RESET = '\033[0m'
+    RESET = "\033[0m"
 
     def format(self, record: logging.LogRecord) -> str:
         # Add color to level name
@@ -35,10 +34,7 @@ class ColorFormatter(logging.Formatter):
 
 
 def setup_logging(
-    level: str = "INFO",
-    log_file: Optional[str] = None,
-    console: bool = True,
-    colored: bool = True
+    level: str = "INFO", log_file: str | None = None, console: bool = True, colored: bool = True
 ) -> None:
     """Set up centralized logging configuration.
 
@@ -71,7 +67,7 @@ def setup_logging(
         console_handler.setLevel(numeric_level)
 
         if colored and sys.stdout.isatty():
-            formatter = ColorFormatter(base_format, date_format)
+            formatter: logging.Formatter = ColorFormatter(base_format, date_format)
         else:
             formatter = logging.Formatter(base_format, date_format)
 
@@ -86,9 +82,7 @@ def setup_logging(
 
         # Use rotating file handler to prevent huge log files
         file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=10 * 1024 * 1024,  # 10MB
-            backupCount=5
+            log_file, maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
         )
         file_handler.setLevel(numeric_level)
 
@@ -99,19 +93,21 @@ def setup_logging(
 
     # Set specific loggers to reduce noise from dependencies
     # Reduce noise from external libraries
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('requests').setLevel(logging.WARNING)
-    logging.getLogger('transformers').setLevel(logging.WARNING)
-    logging.getLogger('torch').setLevel(logging.WARNING)
-    logging.getLogger('sentence_transformers').setLevel(logging.WARNING)
-    logging.getLogger('chromadb').setLevel(logging.WARNING)
-    logging.getLogger('langchain').setLevel(logging.WARNING)
-    logging.getLogger('llama_cpp').setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+    logging.getLogger("transformers").setLevel(logging.WARNING)
+    logging.getLogger("torch").setLevel(logging.WARNING)
+    logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+    logging.getLogger("chromadb").setLevel(logging.WARNING)
+    logging.getLogger("langchain").setLevel(logging.WARNING)
+    logging.getLogger("llama_cpp").setLevel(logging.WARNING)
+    # deepl client is chatty at INFO; silence it to avoid log flooding when quota/errors occur
+    logging.getLogger("deepl").setLevel(logging.WARNING)
 
     # But keep our app logs visible
-    logging.getLogger('src').setLevel(numeric_level)
-    logging.getLogger('web_app').setLevel(numeric_level)
+    logging.getLogger("src").setLevel(numeric_level)
+    logging.getLogger("web_app").setLevel(numeric_level)
 
 
 def get_logger(name: str) -> logging.Logger:

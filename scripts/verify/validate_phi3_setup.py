@@ -18,6 +18,7 @@ print()
 print("Step 1: Testing imports...")
 try:
     from src.core.adapters.local_llm_client import LocalLLMClient
+
     print("✅ LocalLLMClient imported from adapters")
 except Exception as e:
     print(f"❌ Import failed: {e}")
@@ -31,6 +32,7 @@ try:
 except Exception as e:
     print(f"❌ Model loading failed: {e}")
     import traceback
+
     traceback.print_exc()
     sys.exit(1)
 

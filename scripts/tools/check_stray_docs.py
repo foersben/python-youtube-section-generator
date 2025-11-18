@@ -21,8 +21,8 @@ EXCLUDE_DIRS = {
     ".venv",
     "venv",
     "env",
-    "site",          # mkdocs build output
-    "htmlcov",       # coverage HTML output
+    "site",  # mkdocs build output
+    "htmlcov",  # coverage HTML output
     "node_modules",
     "webapp-linux",
 }

@@ -5,13 +5,14 @@ Uses refactored architecture with SectionGenerationService.
 
 import argparse
 import os
+
 from dotenv import load_dotenv
 
 from src.core import formatting
-from src.core.transcript import extract_transcript, extract_video_id
+from src.core.models.models import Section, SectionGenerationConfig
 from src.core.services.section_generation import SectionGenerationService
-from src.core.models.models import SectionGenerationConfig, Section
-from src.utils.logging_config import setup_logging, get_logger
+from src.core.transcript import extract_transcript
+from src.utils.logging_config import get_logger, setup_logging
 
 # Load environment variables once at startup
 load_dotenv()
@@ -31,40 +32,38 @@ def main() -> None:
         "video_id",
         nargs="?",
         default=os.getenv("DEFAULT_VIDEO_ID", "kXhCEyix180"),
-        help="YouTube video ID or URL (default: from DEFAULT_VIDEO_ID env var)"
+        help="YouTube video ID or URL (default: from DEFAULT_VIDEO_ID env var)",
     )
     parser.add_argument(
         "--output-dir",
         default=os.getenv("OUTPUT_DIR", "."),
-        help="Output directory for generated files (default: current directory)"
+        help="Output directory for generated files (default: current directory)",
     )
     parser.add_argument(
         "--translate-to",
         default=os.getenv("TRANSLATE_TO", "en"),
-        help="Language to translate to for generation (default: en, use 'none' to disable)"
+        help="Language to translate to for generation (default: en, use 'none' to disable)",
     )
     parser.add_argument(
         "--min-sections",
         type=int,
         default=int(os.getenv("MIN_SECTIONS", "10")),
-        help="Minimum number of sections to generate"
+        help="Minimum number of sections to generate",
     )
     parser.add_argument(
         "--max-sections",
         type=int,
         default=int(os.getenv("MAX_SECTIONS", "15")),
-        help="Maximum number of sections to generate"
+        help="Maximum number of sections to generate",
     )
     parser.add_argument(
-        "--no-hierarchical",
-        action="store_true",
-        help="Disable hierarchical section generation"
+        "--no-hierarchical", action="store_true", help="Disable hierarchical section generation"
     )
     parser.add_argument(
         "--pipeline-strategy",
         default=os.getenv("PIPELINE_STRATEGY", "legacy"),
         choices=["legacy", "split"],
-        help="Processing pipeline strategy (legacy | split)"
+        help="Processing pipeline strategy (legacy | split)",
     )
 
     args = parser.parse_args()
@@ -109,7 +108,7 @@ def main() -> None:
         )
         os.environ["PIPELINE_STRATEGY"] = args.pipeline_strategy
         print(f"  Sections: {generation_config.min_sections}-{generation_config.max_sections}")
-        print(f"  Title words: 3-7")
+        print("  Title words: 3-7")
         print(f"  Hierarchical: {generation_config.use_hierarchical}")
         print()
 
@@ -129,6 +128,7 @@ def main() -> None:
 
         # Save sections to JSON
         import json
+
         with open(SECTIONS_FILE, "w", encoding="utf-8") as f:
             json.dump(sections_data, f, indent=2, ensure_ascii=False)
         print(f"✅ Sections saved to {SECTIONS_FILE}")
@@ -173,6 +173,7 @@ def main() -> None:
         print("=" * 70)
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
 
 

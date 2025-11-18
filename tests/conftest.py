@@ -1,8 +1,9 @@
 """Pytest configuration and shared fixtures for tests."""
 
+import logging
 import os
 from pathlib import Path
-import logging
+
 import pytest
 
 # Prefer filelock for cross-platform locking; require it
@@ -94,7 +95,6 @@ def pytest_runtest_teardown(item, nextitem):
     if not hasattr(item, "_llm_lockfile_path"):
         return
 
-    lockfile = getattr(item, "_llm_lockfile_path")
     filelock_obj = getattr(item, "_llm_filelock", None)
 
     try:

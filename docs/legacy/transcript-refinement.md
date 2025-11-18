@@ -210,7 +210,7 @@ poetry run pytest tests/test_transcript_refinement.py::test_refine_single_segmen
 ## Troubleshooting
 
 ### Issue: Refinement is slow
-**Solution**: 
+**Solution**:
 - Reduce batch size: modify `refine_transcript_batch(segments, batch_size=3)`
 - Use Gemini API instead of local LLM
 - Use GPU for local LLM processing

@@ -48,7 +48,13 @@ class LocalLLMClient:
       returns a simple placeholder list.
     """
 
-    def __init__(self, model_path: str | None = None, n_ctx: int = 4096, n_threads: int | None = None, temperature: float = 0.2) -> None:
+    def __init__(
+        self,
+        model_path: str | None = None,
+        n_ctx: int = 4096,
+        n_threads: int | None = None,
+        temperature: float = 0.2,
+    ) -> None:
         # Lazy import to allow tests to patch AutoTokenizer/AutoModel
         try:
             import torch
@@ -73,7 +79,9 @@ class LocalLLMClient:
 
         logger.info("Initialized test LocalLLMClient (device=%s)", self.device)
 
-    def generate_sections(self, transcript: list[dict[str, Any]], num_sections: int = 5, max_retries: int = 3) -> list[dict[str, Any]]:
+    def generate_sections(
+        self, transcript: list[dict[str, Any]], num_sections: int = 5, max_retries: int = 3
+    ) -> list[dict[str, Any]]:
         """Generate sections (minimal behaviour for tests).
 
         Raises:
@@ -83,10 +91,14 @@ class LocalLLMClient:
             raise ValueError("Transcript cannot be empty")
 
         # Minimal placeholder behavior: return num_sections empty titled sections
-        interval = max((seg.get("start", 0) for seg in transcript), default=0)
-        return [{"title": f"Section {i+1}", "start": float(transcript[0].get("start", 0))} for i in range(num_sections)]
+        return [
+            {"title": f"Section {i+1}", "start": float(transcript[0].get("start", 0))}
+            for i in range(num_sections)
+        ]
 
-    def _validate_sections(self, sections: list[dict[str, Any]], transcript: list[dict[str, Any]]) -> bool:
+    def _validate_sections(
+        self, sections: list[dict[str, Any]], transcript: list[dict[str, Any]]
+    ) -> bool:
         """Validate sections format and bounds.
 
         Returns True if sections are valid, False otherwise.

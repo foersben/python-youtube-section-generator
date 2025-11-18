@@ -16,8 +16,8 @@ def _get_deepl_adapter(api_key: str | None = None):
     import importlib
 
     mod = importlib.import_module("src.core.services.translation")
-    DeepLAdapter = getattr(mod, "DeepLAdapter")
-    return DeepLAdapter(api_key=api_key or None)
+    deepl_adapter_cls = mod.DeepLAdapter
+    return deepl_adapter_cls(api_key=api_key or None)
 
 
 class DeepLClient:
@@ -30,6 +30,7 @@ class DeepLClient:
         warnings.warn(
             "DeepLClient adapter is deprecated; use src.core.services.DeepLAdapter instead",
             DeprecationWarning,
+            stacklevel=2,
         )
         self._adapter = _get_deepl_adapter(api_key=api_key)
         logger.info("Initialized DeepLClient adapter")

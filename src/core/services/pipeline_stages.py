@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import os
+import re
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Legacy stages (used by tests and "legacy" strategy)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DetermineSectionsStage:
     """Legacy stage: direct section generation via provider.generate_sections."""
@@ -40,7 +41,7 @@ class DetermineSectionsStage:
     section_multiplier: float = 1.0
     name: str = "determine_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         if context.sections and not context.metadata.get("force_section_refresh", False):
             logger.debug("Using precomputed sections; determination skipped")
             context.metadata.setdefault("raw_sections", list(context.sections))
@@ -78,7 +79,7 @@ class EnrichSectionsStage:
 
     name = "enrich_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         sections = _normalize_sections(context.metadata.get("raw_sections") or context.sections)
         if not sections:
             logger.warning("Enrichment skipped because no sections present")
@@ -110,7 +111,7 @@ class FinalizeTitlesStage:
 
     name = "finalize_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         sections = _normalize_sections(
             context.metadata.get("enriched_sections")
             or context.metadata.get("raw_sections")
@@ -129,7 +130,7 @@ class FinalizeTitlesStage:
             prompt = (
                 "Rewrite the section title to stay within a word range."
                 f"\nCurrent title: {section.title}\nWord range: {min_words}-{max_words}."
-                "Return JSON {\"title\":\"New Title\"}."
+                'Return JSON {"title":"New Title"}.'
             )
             try:
                 response = provider.generate_text(prompt, max_tokens=64)
@@ -148,11 +149,12 @@ class FinalizeTitlesStage:
 # New multi-step pipeline stages (split strategy)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class LooseSectionDiscoveryStage:
     name: str = "discover_sections"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         provider = _ensure_provider(context)
         config_obj = _ensure_generation_config(context)
         min_count = max(2, config_obj.min_sections)
@@ -170,7 +172,7 @@ class LooseSectionDiscoveryStage:
 class IntervalParsingStage:
     name = "parse_intervals"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         raw_text = context.metadata.get("section_notes_text", "")
         if not raw_text:
             logger.warning("No section notes text available for parsing")
@@ -188,7 +190,7 @@ class BatchTitleDraftStage:
     batch_size: int = 4
     name: str = "draft_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         intervals = context.metadata.get("intervals", [])
         if not intervals:
             logger.warning("No intervals to title")
@@ -211,7 +213,7 @@ class BatchTitleDraftStage:
 class TitleDraftStructStage:
     name = "structure_title_drafts"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         drafts = context.metadata.get("title_draft_blocks", [])
         if not drafts:
             logger.warning("No draft blocks to structure")
@@ -222,7 +224,7 @@ class TitleDraftStructStage:
         raw_responses: list[str] = []
         for draft in drafts:
             prompt = (
-                "Convert the lines below into JSON list [{\"start\":s,\"end\":e,\"title\":\"...\"}].\n"
+                'Convert the lines below into JSON list [{"start":s,"end":e,"title":"..."}].\n'
                 "Return JSON only.\n"
                 f"Lines:\n{draft}"
             )
@@ -247,7 +249,11 @@ class TitleDraftStructStage:
             logger.warning("Structuring drafts failed; falling back to intervals")
             fallback = context.metadata.get("intervals", [])
             structured = [
-                {"start": item.get("start", 0.0), "end": item.get("end", item.get("start", 0.0)), "title": "Section"}
+                {
+                    "start": item.get("start", 0.0),
+                    "end": item.get("end", item.get("start", 0.0)),
+                    "title": "Section",
+                }
                 for item in fallback
             ]
         context.metadata["title_candidates"] = structured
@@ -257,7 +263,7 @@ class TitleDraftStructStage:
 class TitleOptimizationStage:
     name = "optimize_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         base_entries = context.metadata.get("title_candidates")
         if not base_entries:
             logger.warning("No title candidates to optimize")
@@ -276,7 +282,7 @@ class TitleOptimizationStage:
 class OptimizedTitleParsingStage:
     name = "parse_optimized_titles"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         raw_text = context.metadata.get("optimized_titles_raw", "")
         payload = _safe_json_load(raw_text)
         if isinstance(payload, dict) and "sections" in payload:
@@ -300,8 +306,10 @@ class OptimizedTitleParsingStage:
 class FinalFormattingStage:
     name = "finalize_sections"
 
-    def run(self, context: "PipelineContext") -> None:
-        entries = context.metadata.get("optimized_titles") or context.metadata.get("title_candidates")
+    def run(self, context: PipelineContext) -> None:
+        entries = context.metadata.get("optimized_titles") or context.metadata.get(
+            "title_candidates"
+        )
         if not entries:
             logger.warning("No entries to finalize")
             context.sections = []
@@ -312,7 +320,7 @@ class FinalFormattingStage:
         payload = json.dumps(entries, ensure_ascii=False)
         prompt = (
             f"Limit each title to {min_words}-{max_words} words. Keep start times."
-            "Return JSON {\"sections\":[{\"start\":s,\"title\":\"...\"}]}."
+            'Return JSON {"sections":[{"start":s,"title":"..."}]}.'
             f"\nData:{payload}"
         )
         response = provider.generate_text(prompt, max_tokens=256)
@@ -320,10 +328,16 @@ class FinalFormattingStage:
         if not sections_data:
             logger.warning("Failed to parse final sections; using previous entries")
             sections_data = [
-                {"start": entry.get("start", 0.0), "title": (entry.get("title") or "Section").strip()}
+                {
+                    "start": entry.get("start", 0.0),
+                    "title": (entry.get("title") or "Section").strip(),
+                }
                 for entry in entries
             ]
-        context.sections = [Section(title=item["title"].strip(), start=float(item["start"])) for item in sections_data]
+        context.sections = [
+            Section(title=item["title"].strip(), start=float(item["start"]))
+            for item in sections_data
+        ]
 
 
 class FinalTitleTranslationStage:
@@ -337,7 +351,7 @@ class FinalTitleTranslationStage:
 
     name = "final_title_translation"
 
-    def run(self, context: "PipelineContext") -> None:
+    def run(self, context: PipelineContext) -> None:
         original_lang = context.metadata.get("original_language_code")
         if not original_lang or original_lang.lower() in {"en", "eng"}:
             logger.debug("Skipping title translation: original language '%s'", original_lang)
@@ -361,10 +375,14 @@ class FinalTitleTranslationStage:
                     translator = DeepLAdapter(api_key)
                     logger.info("FinalTitleTranslationStage: using DeepLAdapter fallback")
                 else:
-                    logger.warning("FinalTitleTranslationStage: no translation provider and DEEPL_API_KEY not set; skipping")
+                    logger.warning(
+                        "FinalTitleTranslationStage: no translation provider and DEEPL_API_KEY not set; skipping"
+                    )
                     return
             except Exception as exc:  # pragma: no cover - env dependent
-                logger.warning("Translation adapter unavailable; skipping title translation: %s", exc)
+                logger.warning(
+                    "Translation adapter unavailable; skipping title translation: %s", exc
+                )
                 return
 
         target_lang = original_lang.upper()
@@ -377,13 +395,17 @@ class FinalTitleTranslationStage:
                 continue
             try:
                 # TranslationProvider interface: translate(text, target_lang, source_lang=None)
-                new_title = translator.translate(original_title, target_lang=target_lang, source_lang="EN")
+                new_title = translator.translate(
+                    original_title, target_lang=target_lang, source_lang="EN"
+                )
                 if not new_title:
                     translated_sections.append(section)
                     continue
                 section.title = str(new_title).strip()
             except Exception as exc:
-                logger.warning("Failed to translate title '%s' to %s: %s", original_title, target_lang, exc)
+                logger.warning(
+                    "Failed to translate title '%s' to %s: %s", original_title, target_lang, exc
+                )
                 # Keep original title on failure
             translated_sections.append(section)
 
@@ -394,7 +416,8 @@ class FinalTitleTranslationStage:
 # Helper utilities shared by both families
 # ---------------------------------------------------------------------------
 
-def _ensure_provider(context: "PipelineContext"):
+
+def _ensure_provider(context: PipelineContext):
     provider = context.metadata.get("llm_provider")
     if provider is None:
         provider = LLMFactory.create_provider()
@@ -402,7 +425,7 @@ def _ensure_provider(context: "PipelineContext"):
     return provider
 
 
-def _ensure_generation_config(context: "PipelineContext") -> SectionGenerationConfig:
+def _ensure_generation_config(context: PipelineContext) -> SectionGenerationConfig:
     config_obj = context.metadata.get("generation_config")
     if isinstance(config_obj, SectionGenerationConfig):
         return config_obj
@@ -479,7 +502,9 @@ def _context_snippets(transcript: list[dict[str, Any]], intervals: list[dict[str
     return "\n".join(snippets)
 
 
-def _context_window(transcript: list[dict[str, Any]], start: float, end: float, pad: float = 15.0) -> str:
+def _context_window(
+    transcript: list[dict[str, Any]], start: float, end: float, pad: float = 15.0
+) -> str:
     lower = start - pad
     upper = end + pad
     texts = [seg.get("text", "") for seg in transcript if lower <= seg.get("start", 0.0) <= upper]

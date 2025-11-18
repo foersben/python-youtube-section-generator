@@ -71,7 +71,7 @@ def format_sections_for_youtube(sections: list[dict[str, Any] | Any]) -> str:
                 # Subsection
                 current_main = max(sub_section_counters.keys()) if sub_section_counters else 1
                 sub_section_counters[current_main] += 1
-                sub_letter = chr(ord('a') + (sub_section_counters[current_main] - 1))
+                sub_letter = chr(ord("a") + (sub_section_counters[current_main] - 1))
                 indent = "   "  # 3 spaces for alignment
                 output.append(f"{indent}{sub_letter}. {timestamp} {title}")
 

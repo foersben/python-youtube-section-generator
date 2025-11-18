@@ -11,8 +11,8 @@ Behavior improvements:
 - Uses the current adapter API (`get_info()` and `generate_sections()`).
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Ensure project src is on path for direct execution from repo
@@ -70,7 +70,9 @@ try:
     print("✅ SUCCESS!")
     for i, section in enumerate(sections, 1):
         # Section may be dict-like
-        start = section.get("start") if isinstance(section, dict) else getattr(section, "start", None)
+        start = (
+            section.get("start") if isinstance(section, dict) else getattr(section, "start", None)
+        )
         title = section.get("title") if isinstance(section, dict) else getattr(section, "title", "")
         if start is not None:
             print(f"  {i}. {start:.1f}s - {title}")

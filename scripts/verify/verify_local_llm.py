@@ -28,8 +28,9 @@ print()
 # Check CUDA availability
 try:
     import torch
+
     cuda_available = torch.cuda.is_available()
-    print(f"🖥️  Hardware:")
+    print("🖥️  Hardware:")
     print(f"  CUDA Available: {cuda_available}")
     if cuda_available:
         print(f"  CUDA Device: {torch.cuda.get_device_name(0)}")
@@ -50,7 +51,7 @@ else:
 print()
 
 # Check if model is already downloaded
-model_name = os.getenv('LOCAL_MODEL_NAME', 'microsoft/Phi-3-mini-4k-instruct')
+model_name = os.getenv("LOCAL_MODEL_NAME", "microsoft/Phi-3-mini-4k-instruct")
 cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
 model_dirs = list(cache_dir.glob("models--*")) if cache_dir.exists() else []
 
@@ -63,13 +64,14 @@ if model_dirs:
     if len(model_dirs) > 3:
         print(f"    ... and {len(model_dirs) - 3} more")
 else:
-    print(f"  No cached models found. Model will be downloaded on first use.")
+    print("  No cached models found. Model will be downloaded on first use.")
 print()
 
 # Test import
 print("🔧 Testing imports...")
 try:
-    from transformers import AutoTokenizer, AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     print("  ✅ transformers imported successfully")
 except ImportError as e:
     print(f"  ❌ Import failed: {e}")
@@ -78,6 +80,7 @@ except ImportError as e:
 
 try:
     from src.core.local_llm_client import LocalLLMClient
+
     print("  ✅ LocalLLMClient imported successfully")
 except ImportError as e:
     print(f"  ❌ Import failed: {e}")
@@ -95,28 +98,32 @@ print("⚠️  WARNING: This will download ~15GB if not already cached")
 print()
 response = input("Continue with model test? (y/N): ").strip().lower()
 
-if response == 'y':
+if response == "y":
     print()
     print("🚀 Loading model (this may take several minutes)...")
     print()
-    
+
     try:
         # Simple test
         sample_transcript = [
-            {"start": 0.0, "text": "Welcome to this video about Python programming.", "duration": 3.0},
+            {
+                "start": 0.0,
+                "text": "Welcome to this video about Python programming.",
+                "duration": 3.0,
+            },
             {"start": 3.0, "text": "Today we'll cover the basics of functions.", "duration": 2.5},
             {"start": 5.5, "text": "Let's start with defining a simple function.", "duration": 2.8},
         ]
-        
+
         print("Creating LocalLLMClient...")
         client = LocalLLMClient()
-        
+
         print(f"✅ Model loaded successfully on {client.device}")
         print()
         print("Testing section generation...")
-        
+
         sections = client.generate_sections(sample_transcript, num_sections=2, max_retries=1)
-        
+
         print()
         print("✅ SUCCESS! Generated sections:")
         print("-" * 70)
@@ -125,10 +132,11 @@ if response == 'y':
         print("-" * 70)
         print()
         print("🎉 Local LLM is working perfectly!")
-        
+
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 else:

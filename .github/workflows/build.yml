@@ -1,0 +1,122 @@
+name: 📦 Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: read
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: [3.11, 3.12]
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Poetry
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+
+      - name: Configure Poetry to use in-project venv
+        run: |
+          poetry config virtualenvs.create true --local
+          poetry config virtualenvs.in-project true --local
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dependencies
+        run: |
+          poetry install --no-interaction --no-ansi
+
+      - name: Run tests (excluding heavy LLM markers)
+        run: |
+          poetry run pytest -m "not llm" --maxfail=1 --disable-warnings
+
+      - name: Write .env with Gemini key (if provided)
+        if: env.GEMINI_API_KEY != ''
+        shell: bash
+        run: |
+          python - << 'PY'
+          from pathlib import Path
+          import os
+
+          key = os.getenv('GEMINI_API_KEY', '')
+          if key:
+              Path('.env').write_text(f'GEMINI_API_KEY={key}\n', encoding='utf-8')
+          PY
+
+      - name: Install PyInstaller
+        run: poetry run pip install pyinstaller
+
+      - name: Package with PyInstaller
+        shell: bash
+        run: |
+          rm -rf build dist
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            sep=';'
+            out='webapp-win.exe'
+          elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+            sep=':'
+            out='webapp-mac'
+          else
+            sep=':'
+            out='webapp-linux'
+          fi
+          poetry run pyinstaller \
+            --onefile \
+            --name "$out" \
+            --add-data "src/templates${sep}templates" \
+            --add-data "static${sep}static" \
+            app.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webapp-${{ matrix.os }}-py${{ matrix.python }}
+          path: dist/webapp-*
+          retention-days: 14
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release and Upload Binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            dist/webapp-ubuntu-latest-py3.11/webapp-linux
+            dist/webapp-ubuntu-latest-py3.12/webapp-linux
+            dist/webapp-windows-latest-py3.11/webapp-win.exe
+            dist/webapp-windows-latest-py3.12/webapp-win.exe
+            dist/webapp-macos-latest-py3.11/webapp-mac
+            dist/webapp-macos-latest-py3.12/webapp-mac
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

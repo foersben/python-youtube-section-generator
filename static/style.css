@@ -228,20 +228,20 @@ footer {
         border-radius: 0;
         box-shadow: none;
     }
-    
+
     header {
         padding: 20px 15px;
     }
-    
+
     main {
         padding: 20px 15px;
     }
-    
+
     .range-group {
         flex-direction: column;
         gap: 10px;
     }
-    
+
     .actions button {
         min-width: 100%;
     }

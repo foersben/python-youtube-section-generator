@@ -33,5 +33,3 @@ Security & safety
 
 - Never echo API keys to stdout in logs unless explicitly asked
 - Use file permissions when writing `.env` (e.g., `chmod 600 .env`)
-
-

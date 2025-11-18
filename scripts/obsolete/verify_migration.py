@@ -31,6 +31,7 @@ print("-" * 70)
 
 try:
     import torch
+
     print(f"  ✓ PyTorch: {torch.__version__}")
     print(f"  ✓ CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
@@ -40,7 +41,7 @@ try:
             mem = torch.cuda.get_device_properties(i).total_memory / 1024**3
             print(f"    - GPU {i}: {name} ({mem:.1f}GB)")
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        print(f"  ✓ Apple MPS available: True")
+        print("  ✓ Apple MPS available: True")
     else:
         print(f"  ✓ CPU mode: {torch.get_num_threads()} threads")
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
 
 try:
     import transformers
+
     print(f"  ✓ Transformers: {transformers.__version__}")
 except ImportError:
     print("  ❌ Transformers not installed")
@@ -111,15 +113,18 @@ print(f"  Source code: {src_size:.1f}MB")
 print(f"  Documentation: {docs_size:.1f}MB")
 
 if cache_dir.exists() and list(cache_dir.glob("models--*")):
-    cache_size = sum(
-        f.stat().st_size 
-        for model in cache_dir.glob("models--*") 
-        for f in model.rglob("*") 
-        if f.is_file()
-    ) / 1024**3
+    cache_size = (
+        sum(
+            f.stat().st_size
+            for model in cache_dir.glob("models--*")
+            for f in model.rglob("*")
+            if f.is_file()
+        )
+        / 1024**3
+    )
     print(f"  Model cache: {cache_size:.2f}GB")
 else:
-    print(f"  Model cache: 0GB (will be ~8GB after download)")
+    print("  Model cache: 0GB (will be ~8GB after download)")
 
 print()
 
@@ -129,7 +134,9 @@ print("MIGRATION STATUS")
 print("=" * 70)
 
 checks = {
-    "Configuration set to Phi-3": "USE_LOCAL_LLM=true" in open(".env").read() if Path(".env").exists() else False,
+    "Configuration set to Phi-3": (
+        "USE_LOCAL_LLM=true" in open(".env").read() if Path(".env").exists() else False
+    ),
     "PyTorch installed": True,  # We already checked above
     "LocalLLMClient exists": Path("src/core/local_llm_client.py").exists(),
     "Test script ready": Path("scripts/test_phi3.py").exists(),
@@ -155,4 +162,3 @@ else:
     print("⚠️  Some checks failed. Please review above.")
 
 print("=" * 70)
-

@@ -23,7 +23,9 @@ class LLMProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def generate_text(self, prompt: str, max_tokens: int = 512, temperature: float | None = None) -> str:
+    def generate_text(
+        self, prompt: str, max_tokens: int = 512, temperature: float | None = None
+    ) -> str:
         """Generate text for a given prompt."""
         raise NotImplementedError
 
@@ -34,4 +36,3 @@ class LLMProvider(ABC):
 
 
 __all__ = ["LLMProvider"]
-

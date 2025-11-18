@@ -12,4 +12,3 @@ from src.core.config.config import AppConfig
 config = AppConfig()
 
 __all__ = ["AppConfig", "config"]
-

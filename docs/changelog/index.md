@@ -31,5 +31,3 @@ Viewing the changelog
 
 - The documentation site links to this index. Use the index to find the
   release you want.
-
-

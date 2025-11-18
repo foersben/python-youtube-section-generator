@@ -38,7 +38,7 @@ class Repository(ABC):
 
 class JSONFileRepository(Repository):
     """File-based repository using JSON format.
-    
+
     Implements Repository pattern for persisting data to JSON files.
     """
 
@@ -63,15 +63,15 @@ class JSONFileRepository(Repository):
             IOError: If save fails.
         """
         file_path = self._get_file_path(identifier)
-        
+
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
             logger.info(f"Saved data to {file_path}")
 
         except Exception as e:
             logger.error(f"Failed to save to {file_path}: {e}")
-            raise IOError(f"Save failed: {e}") from e
+            raise OSError(f"Save failed: {e}") from e
 
     def load(self, identifier: str) -> Any:
         """Load data from JSON file.
@@ -87,19 +87,19 @@ class JSONFileRepository(Repository):
             IOError: If load fails.
         """
         file_path = self._get_file_path(identifier)
-        
+
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
             logger.info(f"Loaded data from {file_path}")
             return data
 
         except Exception as e:
             logger.error(f"Failed to load from {file_path}: {e}")
-            raise IOError(f"Load failed: {e}") from e
+            raise OSError(f"Load failed: {e}") from e
 
     def exists(self, identifier: str) -> bool:
         """Check if file exists.
@@ -123,7 +123,7 @@ class JSONFileRepository(Repository):
             FileNotFoundError: If file doesn't exist.
         """
         file_path = self._get_file_path(identifier)
-        
+
         if not file_path.exists():
             raise FileNotFoundError(f"File not found: {file_path}")
 
@@ -133,7 +133,7 @@ class JSONFileRepository(Repository):
 
         except Exception as e:
             logger.error(f"Failed to delete {file_path}: {e}")
-            raise IOError(f"Delete failed: {e}") from e
+            raise OSError(f"Delete failed: {e}") from e
 
     def _get_file_path(self, identifier: str) -> Path:
         """Get full file path for identifier.
@@ -145,21 +145,19 @@ class JSONFileRepository(Repository):
             Full path to JSON file.
         """
         # Ensure .json extension
-        if not identifier.endswith('.json'):
+        if not identifier.endswith(".json"):
             identifier = f"{identifier}.json"
-        
+
         return self.base_dir / identifier
 
 
 class TranscriptRepository(JSONFileRepository):
     """Specialized repository for transcripts.
-    
+
     Provides transcript-specific convenience methods.
     """
 
-    def save_transcript(
-        self, transcript: list[dict[str, Any]], video_id: str
-    ) -> None:
+    def save_transcript(self, transcript: list[dict[str, Any]], video_id: str) -> None:
         """Save transcript for video.
 
         Args:
@@ -193,13 +191,11 @@ class TranscriptRepository(JSONFileRepository):
 
 class SectionsRepository(JSONFileRepository):
     """Specialized repository for sections.
-    
+
     Provides section-specific convenience methods.
     """
 
-    def save_sections(
-        self, sections: list[dict[str, Any]], video_id: str
-    ) -> None:
+    def save_sections(self, sections: list[dict[str, Any]], video_id: str) -> None:
         """Save sections for video.
 
         Args:
@@ -237,4 +233,3 @@ __all__ = [
     "TranscriptRepository",
     "SectionsRepository",
 ]
-

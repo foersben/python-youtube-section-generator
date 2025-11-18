@@ -68,4 +68,3 @@ echo "Next steps:"
 echo "  1. Test RAG: poetry run python scripts/test_rag.py"
 echo "  2. Use web app: poetry run python src/web_app.py"
 echo ""
-

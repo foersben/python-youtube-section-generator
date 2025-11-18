@@ -16,12 +16,13 @@ class AppConfig:
     """Application configuration (Singleton pattern).
 
     Centralizes all configuration management with environment variable support.
-    
+
     This class should only be instantiated once (Singleton pattern).
     Use the `config` instance from __init__.py instead of creating new instances.
     """
 
     _instance: "AppConfig | None" = None
+    _initialized: bool
 
     def __new__(cls) -> "AppConfig":
         """Singleton implementation - only one instance allowed."""
@@ -80,17 +81,17 @@ class AppConfig:
 
     def _get_project_root(self) -> Path:
         """Get project root directory.
-        
+
         Assumes config is in src/core/config/
         """
         return Path(__file__).parent.parent.parent.parent
 
     def _resolve_model_path(self, path_str: str) -> Path:
         """Resolve model path to absolute path.
-        
+
         Args:
             path_str: Relative or absolute path string.
-            
+
         Returns:
             Absolute Path object.
         """
@@ -101,10 +102,10 @@ class AppConfig:
 
     def should_use_rag(self, video_duration: float) -> bool:
         """Determine if RAG should be used based on video duration.
-        
+
         Args:
             video_duration: Video duration in seconds.
-            
+
         Returns:
             True if RAG should be used, False otherwise.
         """
@@ -117,7 +118,7 @@ class AppConfig:
 
     def validate(self) -> list[str]:
         """Validate configuration and return list of issues.
-        
+
         Returns:
             List of validation error messages (empty if valid).
         """
@@ -134,7 +135,7 @@ class AppConfig:
 
     def to_dict(self) -> dict[str, Any]:
         """Export configuration as dictionary.
-        
+
         Returns:
             Dictionary with key configuration values.
         """

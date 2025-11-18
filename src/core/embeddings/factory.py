@@ -16,7 +16,9 @@ class EmbeddingsFactory:
     """
 
     @staticmethod
-    def create_provider(model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu") -> EmbeddingsProvider:
+    def create_provider(
+        model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu"
+    ) -> EmbeddingsProvider:
         """Create an embeddings provider instance.
 
         Args:

@@ -55,7 +55,9 @@ class SentenceTransformerEmbeddings(EmbeddingsProvider):
         device: Device string ("cpu" or "cuda"). Defaults to "cpu".
     """
 
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu") -> None:
+    def __init__(
+        self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2", device: str = "cpu"
+    ) -> None:
         try:
             from sentence_transformers import SentenceTransformer
         except ImportError as exc:  # pragma: no cover - runtime check

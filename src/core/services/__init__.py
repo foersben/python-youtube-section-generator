@@ -4,20 +4,15 @@ for common use cases.
 """
 
 import logging
-from typing import Any
 
-from src.core.config import config
-from src.core.services.section_generation import SectionGenerationService
 from src.core.services.repository import (
-    Repository,
     JSONFileRepository,
-    TranscriptRepository,
+    Repository,
     SectionsRepository,
+    TranscriptRepository,
 )
-from src.core.services.translation import (
-    TranslationProvider,
-    DeepLAdapter,
-)
+from src.core.services.section_generation import SectionGenerationService
+from src.core.services.translation import DeepLAdapter, TranslationProvider
 
 logger = logging.getLogger(__name__)
 

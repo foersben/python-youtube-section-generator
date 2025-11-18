@@ -28,5 +28,3 @@ Recommended workflow
 
 - Keep `fast-tests` on GitHub-hosted runners for PR feedback
 - Run `heavy-integration` on a scheduled cadence or manually when needed
-
-

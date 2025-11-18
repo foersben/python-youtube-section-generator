@@ -7,4 +7,4 @@ heavy imports. Import submodules explicitly where needed.
 
 from __future__ import annotations
 
-__all__ = []
+__all__: list[str] = []

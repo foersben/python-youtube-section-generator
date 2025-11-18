@@ -9,20 +9,22 @@ model.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import re
-import hashlib
 from pathlib import Path
 from typing import Any, cast
+
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+
+from src.core.embeddings import EmbeddingsFactory
 
 logger = logging.getLogger(__name__)
 
 # Centralized embeddings provider (CPU-only default)
-from src.core.embeddings import EmbeddingsFactory
 
 
 class TranscriptRAG:
@@ -41,13 +43,98 @@ class TranscriptRAG:
         chunk_overlap: int = 200,
         temperature: float = 0.3,
     ) -> None:
+        # Try to import langchain text splitter; provide a small local fallback
+        # so RAG can still operate (with reduced features) when langchain
+        # isn't installed or was upgraded with breaking changes.
         try:
-            from langchain.text_splitter import RecursiveCharacterTextSplitter
-            from langchain_community.llms import LlamaCpp
-        except ImportError as e:  # pragma: no cover - runtime env check
+            # Preferred import (works with most langchain releases)
+            from langchain.text_splitter import (
+                RecursiveCharacterTextSplitter,  # type: ignore
+            )
+
+        except Exception:
+            # Some langchain releases may reorganize modules; try common alternatives
+            try:
+                from langchain.text_splitter import (
+                    CharacterTextSplitter as _CTS,  # type: ignore
+                )
+
+                class _FallbackRecursiveCharacterTextSplitter(_CTS):  # type: ignore
+                    """Thin compatibility wrapper mapping to CharacterTextSplitter API."""
+
+                    pass
+
+                RecursiveCharacterTextSplitter = _FallbackRecursiveCharacterTextSplitter
+
+            except Exception:
+                # Fallback: provide a minimal local splitter implementation
+                logger.warning(
+                    "langchain.text_splitter not available; using local fallback splitter. "
+                    "Install 'langchain' for full functionality."
+                )
+
+                class _FallbackLocalRecursiveCharacterTextSplitter:
+                    """Minimal fallback splitter that creates overlapping chunks.
+
+                    This implements a tiny subset of LangChain's API used in this
+                    project: constructor signature and `create_documents(texts, metadatas)`.
+                    It returns simple objects with `page_content` and `metadata`.
+                    """
+
+                    def __init__(
+                        self,
+                        chunk_size: int = 1000,
+                        chunk_overlap: int = 200,
+                        separators=None,
+                        length_function=None,
+                    ) -> None:
+                        self.chunk_size = int(chunk_size)
+                        self.chunk_overlap = int(chunk_overlap)
+
+                    def _split_text(self, text: str) -> list[str]:
+                        if not text:
+                            return []
+                        size = self.chunk_size
+                        overlap = self.chunk_overlap
+                        if size <= 0:
+                            return [text]
+                        chunks: list[str] = []
+                        start = 0
+                        L = len(text)
+                        while start < L:
+                            end = min(start + size, L)
+                            chunks.append(text[start:end])
+                            if end == L:
+                                break
+                            start = max(0, end - overlap)
+                        return chunks
+
+                    def create_documents(
+                        self, texts: list[str], metadatas: list[dict[str, Any] | None] | None = None
+                    ):
+                        docs: list[object] = []
+                        if metadatas is None:
+                            metadatas = [None] * len(texts)
+                        for text, meta in zip(texts, metadatas, strict=False):
+                            for chunk in self._split_text(text):
+                                # create a lightweight document-like object
+                                docs.append(
+                                    type("Doc", (), {"page_content": chunk, "metadata": meta})()
+                                )
+                        return docs
+
+                RecursiveCharacterTextSplitter = _FallbackLocalRecursiveCharacterTextSplitter
+
+        # Try to import LlamaCpp from langchain_community; if missing we let the
+        # import error surface when attempting to use Llama functionality later.
+        try:
+            from langchain_community.llms import LlamaCpp  # type: ignore
+        except Exception as e:
+            # The local LLM provider is required for title refinement; fail early
             raise RuntimeError(
-                f"Required packages not installed: {e}\n"
-                "Install with: poetry add langchain langchain-community chromadb sentence-transformers"
+                "Required packages for local RAG LLM not installed: langchain-community (LlamaCpp). "
+                "Install with: poetry add langchain langchain-community\n"
+                f"Original error: {e}"
             ) from e
 
         # Configuration
@@ -72,8 +159,10 @@ class TranscriptRAG:
 
         logger.info("Initializing RAG system (model=%s)", Path(self.model_path).name)
 
-        # Text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        # Text splitter (may be a third-party or our local fallback)
+        from typing import Any as _Any
+
+        self.text_splitter: _Any = RecursiveCharacterTextSplitter(
             chunk_size=self.chunk_size,
             chunk_overlap=self.chunk_overlap,
             separators=["\n\n", "\n", ". ", " ", ""],
@@ -102,8 +191,8 @@ class TranscriptRAG:
             verbose=False,
         )
 
-        self.vectorstore = None
-        self.current_video_id = None
+        self.vectorstore: _Any = None
+        self.current_video_id: str | None = None
         logger.info("\u2705 RAG system initialized")
 
     # ----------------------- Internal helpers -----------------------
@@ -119,7 +208,11 @@ class TranscriptRAG:
         return "\n".join(lines)
 
     def _aggregate_context(
-        self, transcript: list[dict[str, Any]], ts: float, window: float = 60.0, max_chars: int = 2000
+        self,
+        transcript: list[dict[str, Any]],
+        ts: float,
+        window: float = 60.0,
+        max_chars: int = 2000,
     ) -> str:
         """Aggregate transcript text around a timestamp, plus vector hits."""
         nearby = [seg for seg in transcript if abs(seg.get("start", 0.0) - ts) <= window]
@@ -151,7 +244,7 @@ class TranscriptRAG:
             "You write table-of-contents headings for long-form videos. "
             "Given the transcript excerpt below, produce one descriptive title (3-10 words). "
             "It must be a standalone phrase without prefixes or numbering.\n\n"
-            f"Excerpt:\n\"...{context_snippet}...\"\n\nTitle:"
+            f'Excerpt:\n"...{context_snippet}..."\n\nTitle:'
         )
         try:
             result = self.llm.invoke(prompt)  # type: ignore[attr-defined]
@@ -168,8 +261,16 @@ class TranscriptRAG:
         """Remove artifacts and normalize capitalization."""
         title = title.strip().strip("\"'`.,;:!?-–—")
         artifacts = [
-            "assistant", "response", "title", "topics", "here is", "here's",
-            "sure", "of course", "intro", "section"
+            "assistant",
+            "response",
+            "title",
+            "topics",
+            "here is",
+            "here's",
+            "sure",
+            "of course",
+            "intro",
+            "section",
         ]
         for artifact in artifacts:
             title = re.sub(rf"\b{artifact}\b:?", "", title, flags=re.IGNORECASE)
@@ -183,8 +284,6 @@ class TranscriptRAG:
             title = title[0].upper() + title[1:]
 
         return title or "Section"
-
-
 
     # ----------------------- Indexing -----------------------
     def index_transcript(self, transcript: list[dict[str, Any]], video_id: str) -> None:
@@ -204,6 +303,7 @@ class TranscriptRAG:
         # Detect transcript language for language-aware fallback
         try:
             from langdetect import detect
+
             sample_text = " ".join(seg.get("text", "") for seg in transcript[:50])
             self.detected_language = detect(sample_text) if sample_text.strip() else "en"
             logger.info("Detected transcript language: %s", self.detected_language)
@@ -211,9 +311,16 @@ class TranscriptRAG:
             logger.warning("Language detection failed: %s; defaulting to English", e)
             self.detected_language = "en"
 
-        chunks = self.text_splitter.create_documents(
+        # create_documents signature differs between implementations; ignore strict typing here
+        chunks = self.text_splitter.create_documents(  # type: ignore[call-arg]
             texts=[full_text],
-            metadatas=[{"video_id": video_id, "total_segments": len(transcript), "language": self.detected_language}],
+            metadatas=[
+                {
+                    "video_id": video_id,
+                    "total_segments": len(transcript),
+                    "language": self.detected_language,
+                }
+            ],
         )
         logger.info("Created %d chunks for indexing", len(chunks))
 
@@ -252,6 +359,7 @@ class TranscriptRAG:
         if detected_lang is None:
             try:
                 from langdetect import detect
+
                 detected_lang = detect(t)
             except Exception:
                 detected_lang = "en"  # Default to English
@@ -259,26 +367,158 @@ class TranscriptRAG:
         # Language-specific stopwords
         stopwords_by_lang = {
             "en": {
-                "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-                "of", "with", "by", "from", "up", "about", "into", "through", "during",
-                "is", "are", "was", "were", "be", "been", "being", "have", "has", "had",
-                "do", "does", "did", "will", "would", "could", "should", "may", "might",
-                "can", "must", "shall", "this", "that", "these", "those", "which", "who",
-                "what", "where", "when", "why", "how", "all", "each", "every", "both",
-                "few", "more", "most", "other", "some", "such"
+                "the",
+                "a",
+                "an",
+                "and",
+                "or",
+                "but",
+                "in",
+                "on",
+                "at",
+                "to",
+                "for",
+                "of",
+                "with",
+                "by",
+                "from",
+                "up",
+                "about",
+                "into",
+                "through",
+                "during",
+                "is",
+                "are",
+                "was",
+                "were",
+                "be",
+                "been",
+                "being",
+                "have",
+                "has",
+                "had",
+                "do",
+                "does",
+                "did",
+                "will",
+                "would",
+                "could",
+                "should",
+                "may",
+                "might",
+                "can",
+                "must",
+                "shall",
+                "this",
+                "that",
+                "these",
+                "those",
+                "which",
+                "who",
+                "what",
+                "where",
+                "when",
+                "why",
+                "how",
+                "all",
+                "each",
+                "every",
+                "both",
+                "few",
+                "more",
+                "most",
+                "other",
+                "some",
+                "such",
             },
             "de": {
                 # German stopwords
-                "der", "die", "das", "den", "dem", "des", "ein", "eine", "einer", "eines",
-                "und", "oder", "aber", "in", "an", "auf", "zu", "für", "von", "mit", "bei",
-                "aus", "über", "durch", "um", "nach", "vor", "zwischen", "ist", "sind",
-                "war", "waren", "sein", "haben", "hat", "hatte", "hatten", "werden", "wird",
-                "wurde", "wurden", "kann", "könnte", "muss", "sollte", "mag", "darf", "dies",
-                "diese", "dieser", "dieses", "jene", "welche", "wer", "was", "wo", "wann",
-                "warum", "wie", "alle", "jede", "einige", "mehr", "meisten", "andere", "solche",
-                "äh", "ähm", "hmm", "um", "uh", "er", "also", "nicht", "noch", "schon", "nur",
-                "ich", "du", "wir", "sie", "ihm", "ihr", "ihn", "mir", "dir"
-            }
+                "der",
+                "die",
+                "das",
+                "den",
+                "dem",
+                "des",
+                "ein",
+                "eine",
+                "einer",
+                "eines",
+                "und",
+                "oder",
+                "aber",
+                "in",
+                "an",
+                "auf",
+                "zu",
+                "für",
+                "von",
+                "mit",
+                "bei",
+                "aus",
+                "über",
+                "durch",
+                "um",
+                "nach",
+                "vor",
+                "zwischen",
+                "ist",
+                "sind",
+                "war",
+                "waren",
+                "sein",
+                "haben",
+                "hat",
+                "hatte",
+                "hatten",
+                "werden",
+                "wird",
+                "wurde",
+                "wurden",
+                "kann",
+                "könnte",
+                "muss",
+                "sollte",
+                "mag",
+                "darf",
+                "dies",
+                "diese",
+                "dieser",
+                "dieses",
+                "jene",
+                "welche",
+                "wer",
+                "was",
+                "wo",
+                "wann",
+                "warum",
+                "wie",
+                "alle",
+                "jede",
+                "einige",
+                "mehr",
+                "meisten",
+                "andere",
+                "solche",
+                "äh",
+                "ähm",
+                "hmm",
+                "uh",
+                "er",
+                "also",
+                "nicht",
+                "noch",
+                "schon",
+                "nur",
+                "ich",
+                "du",
+                "wir",
+                "sie",
+                "ihm",
+                "ihr",
+                "ihn",
+                "mir",
+                "dir",
+            },
         }
 
         # Get appropriate stopwords for detected language
@@ -357,9 +597,13 @@ class TranscriptRAG:
         use_vectorstore = self.vectorstore is not None
 
         for idx, sample_time in enumerate(sample_times):
-            logger.info("Generating flat section %d/%d at ~%ds", idx + 1, num_sections, int(sample_time))
+            logger.info(
+                "Generating flat section %d/%d at ~%ds", idx + 1, num_sections, int(sample_time)
+            )
             nearest = min(transcript, key=lambda s: abs(s.get("start", 0) - sample_time))
-            candidate_title = self._clean_title_tokens(nearest.get("text", ""), self.detected_language)
+            candidate_title = self._clean_title_tokens(
+                nearest.get("text", ""), self.detected_language
+            )
             candidate_start = float(nearest.get("start", 0.0))
 
             if use_vectorstore:
@@ -379,7 +623,7 @@ class TranscriptRAG:
         return sections
 
     def _find_semantic_boundaries(
-            self, transcript: list[dict[str, Any]], distance_percentile: int = 25
+        self, transcript: list[dict[str, Any]], distance_percentile: int = 25
     ) -> list[dict[str, Any]]:
         """
         Finds topic boundaries by calculating embedding similarity between
@@ -404,7 +648,7 @@ class TranscriptRAG:
         texts = [seg.get("text", "").strip() for seg in transcript]
         # Filter out empty segments which can break the chain
         valid_segments = [
-            (i, seg) for i, (seg, text) in enumerate(zip(transcript, texts)) if text
+            (i, seg) for i, (seg, text) in enumerate(zip(transcript, texts, strict=False)) if text
         ]
         if not valid_segments:
             logger.warning("No valid text segments found in transcript.")
@@ -421,10 +665,7 @@ class TranscriptRAG:
         # 2. Calculate cosine similarity between adjacent (N-1) segments
         similarities = []
         for i in range(len(embeddings) - 1):
-            sim = cosine_similarity(
-                [embeddings[i]],
-                [embeddings[i + 1]]
-            )[0][0]
+            sim = cosine_similarity([embeddings[i]], [embeddings[i + 1]])[0][0]
             similarities.append(sim)
 
         # 3. Find the "dips" (topic breaks)
@@ -441,7 +682,7 @@ class TranscriptRAG:
                 boundary_indices.append(i + 1)
 
         # De-duplicate and get the actual transcript segments
-        unique_segment_indices = sorted(list(set(boundary_indices)))
+        unique_segment_indices = sorted(set(boundary_indices))
 
         # Map back to original transcript indices
         original_boundary_segments = [
@@ -470,7 +711,9 @@ class TranscriptRAG:
 
         for idx, main_seg in enumerate(main_sections):
             main_start = float(main_seg.get("start", 0.0))
-            context_window = self._aggregate_context(transcript, ts=main_start, window=90.0, max_chars=2000)
+            context_window = self._aggregate_context(
+                transcript, ts=main_start, window=90.0, max_chars=2000
+            )
 
             main_title = self._clean_title_tokens(main_seg.get("text", ""), self.detected_language)
             if use_llm_titles and vectorstore_available and context_window:
@@ -482,7 +725,9 @@ class TranscriptRAG:
                         main_title,
                     )
                 except Exception:
-                    logger.warning("Main title refinement failed at %.1fs; using heuristic", main_start)
+                    logger.warning(
+                        "Main title refinement failed at %.1fs; using heuristic", main_start
+                    )
 
             sections.append({"title": main_title, "start": main_start, "level": 0})
 
@@ -499,13 +744,14 @@ class TranscriptRAG:
                 continue
 
             chunk_segments = [
-                seg for seg in transcript
-                if window_start <= seg.get("start", 0.0) < window_end
+                seg for seg in transcript if window_start <= seg.get("start", 0.0) < window_end
             ]
 
             subtopics = self._find_subtopics_in_chunk(chunk_segments, subsections_per_main)
             if not subtopics:
-                subtopics = self._fallback_time_subsections(transcript, window_start, window_end, subsections_per_main)
+                subtopics = self._fallback_time_subsections(
+                    transcript, window_start, window_end, subsections_per_main
+                )
 
             for sub in subtopics:
                 sub_start = float(sub.get("start", window_start))
@@ -513,11 +759,13 @@ class TranscriptRAG:
                     continue
                 if sub_start > window_end:
                     sub_start = window_end
-                sections.append({
-                    "title": sub.get("title", "Section"),
-                    "start": round(sub_start, 1),
-                    "level": 1,
-                })
+                sections.append(
+                    {
+                        "title": sub.get("title", "Section"),
+                        "start": round(sub_start, 1),
+                        "level": 1,
+                    }
+                )
 
         return sections
 
@@ -549,12 +797,16 @@ class TranscriptRAG:
         total_duration = max(seg["start"] + seg.get("duration", 0) for seg in transcript)
         if hierarchical:
             main_sections_count = max(3, min(5, num_sections // 3))
-            subsections_per_main = max(2, (num_sections - main_sections_count) // main_sections_count)
+            subsections_per_main = max(
+                2, (num_sections - main_sections_count) // main_sections_count
+            )
             sections = self._generate_hierarchical_sections(
                 transcript, total_duration, main_sections_count, subsections_per_main, retrieval_k
             )
         else:
-            sections = self._generate_flat_sections(transcript, total_duration, num_sections, retrieval_k)
+            sections = self._generate_flat_sections(
+                transcript, total_duration, num_sections, retrieval_k
+            )
 
         # Final cleanup
         clean_sections: list[dict[str, Any]] = []
@@ -562,7 +814,12 @@ class TranscriptRAG:
             title = str(s.get("title", "")).strip().strip("\"'`.,;:!?-–—")
             if not title or len(title) < 3:
                 title = "Section"
-            clean_sections.append({"title": title, "start": float(s.get("start", 0.0)), **({"level": s["level"]} if "level" in s else {})})
+            start_val = s.get("start", 0.0)
+            start_f = float(start_val or 0.0)
+            clean_entry: dict[str, Any] = {"title": title, "start": start_f}
+            if "level" in s:
+                clean_entry["level"] = s["level"]
+            clean_sections.append(clean_entry)
 
         return clean_sections
 
@@ -581,6 +838,7 @@ class TranscriptRAG:
                         self.vectorstore.shutdown()
                 except Exception:
                     logger.debug("Vectorstore shutdown failed", exc_info=True)
+
                 self.vectorstore = None
             if getattr(self, "llm", None) is not None and hasattr(self.llm, "close"):
                 try:
@@ -640,7 +898,8 @@ class TranscriptRAG:
             if not isinstance(topic, dict):
                 continue
             try:
-                start_val = float(topic.get("start"))
+                start_val_raw = topic.get("start")
+                start_val = float(start_val_raw or 0.0)
             except (TypeError, ValueError):
                 continue
             title_val = self._polish_title(str(topic.get("title", "")).strip())
@@ -666,8 +925,14 @@ class TranscriptRAG:
         for idx in range(count):
             frac = (idx + 1) / (count + 1)
             sub_ts = window_start + frac * (window_end - window_start)
-            nearest = min(transcript, key=lambda seg: abs(seg.get("start", 0.0) - sub_ts)) if transcript else None
-            title = self._clean_title_tokens(nearest.get("text", "") if nearest else "Section", self.detected_language)
+            nearest = (
+                min(transcript, key=lambda seg: abs(seg.get("start", 0.0) - sub_ts))
+                if transcript
+                else None
+            )
+            title = self._clean_title_tokens(
+                nearest.get("text", "") if nearest else "Section", self.detected_language
+            )
             if len(title.split()) < 2:
                 title = self._clean_title_tokens("Section", self.detected_language)
             subsections.append({"title": title or "Section", "start": round(sub_ts, 1), "level": 1})

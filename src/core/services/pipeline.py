@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Protocol, Any
+from typing import Any, Protocol
 
 from src.core.config import config
 from src.core.models import Section
@@ -40,8 +40,7 @@ class PipelineStage(Protocol):
 class PipelineStrategy(Protocol):
     """Factory for composing stage sequences based on strategy name."""
 
-    def build(self, context: PipelineContext) -> list[PipelineStage]:
-        ...
+    def build(self, context: PipelineContext) -> list[PipelineStage]: ...
 
 
 class DefaultPipelineStrategy:

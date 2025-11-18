@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from langdetect import detect as _lang_detect
 
@@ -16,9 +16,9 @@ from src.core.config import config
 from src.core.llm import LLMFactory
 from src.core.models import Section, SectionGenerationConfig, TranscriptSegment
 from src.core.retrieval import RAGSystem
-from src.core.services.translation import DeepLAdapter, TranslationProvider
 from src.core.services.pipeline import PipelineContext, build_pipeline
 from src.core.services.pipeline_stages import FinalTitleTranslationStage
+from src.core.services.translation import DeepLAdapter, TranslationProvider
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,10 @@ class SectionGenerationService:
 
     def __init__(self) -> None:
         """Initialize section generation service."""
-        self.llm_provider = None
-        self.rag_system = None
+
+        # Typed attributes to satisfy static checks
+        self.llm_provider: Any = None
+        self.rag_system: Any = None
 
     def generate_sections(
         self,
@@ -51,6 +53,7 @@ class SectionGenerationService:
         Returns:
             List of Section objects.
         """
+
         # Normalize input
         transcript_dicts = self._normalize_transcript(transcript)
         vid_id = video_id or self._generate_video_id(transcript_dicts)
@@ -58,18 +61,27 @@ class SectionGenerationService:
 
         # Calculate duration
         total_duration = max(
-            seg["start"] + seg.get("duration", 0) for seg in transcript_dicts
+            (seg.get("start", 0.0) or 0.0) + (seg.get("duration", 0.0) or 0.0)
+            for seg in transcript_dicts
         )
 
         # Optional: translation pipeline (German -> English -> German)
         source_lang = self._detect_language(transcript_dicts)
-        use_translation = (os.getenv("USE_TRANSLATION", "true").lower() == "true")
+        use_translation = os.getenv("USE_TRANSLATION", "true").lower() == "true"
         translator = self._get_translator()
         translated_for_generation: list[dict[str, Any]] | None = None
-        if use_translation and translator is not None and source_lang and source_lang.lower() not in ("en", "eng"):
+        if (
+            use_translation
+            and translator is not None
+            and source_lang
+            and source_lang.lower() not in ("en", "eng")
+        ):
             logger.info("Translating transcript from %s to EN-US for generation...", source_lang)
             translated_for_generation = self._translate_transcript_segments(
-                transcript_dicts, translator=translator, target_lang="EN-US", source_lang=source_lang
+                transcript_dicts,
+                translator=translator,
+                target_lang="EN-US",
+                source_lang=source_lang,
             )
 
         working_transcript = translated_for_generation or transcript_dicts
@@ -86,7 +98,9 @@ class SectionGenerationService:
             sections_data = self._generate_with_rag(working_transcript, vid_id, gen_config)
             sections = [Section.from_dict(s) for s in sections_data]
 
-            pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
+            pipeline_context = PipelineContext(
+                transcript=working_transcript, sections=list(sections)
+            )
             pipeline_context.metadata["generation_config"] = gen_config
             if original_lang_code:
                 pipeline_context.metadata["original_language_code"] = original_lang_code
@@ -101,7 +115,9 @@ class SectionGenerationService:
             sections_data = self._generate_direct(working_transcript, gen_config)
             sections = [Section.from_dict(s) for s in sections_data]
 
-            pipeline_context = PipelineContext(transcript=working_transcript, sections=list(sections))
+            pipeline_context = PipelineContext(
+                transcript=working_transcript, sections=list(sections)
+            )
             pipeline_context.metadata["generation_config"] = gen_config
             if self.llm_provider is not None:
                 pipeline_context.metadata["llm_provider"] = self.llm_provider
@@ -112,10 +128,14 @@ class SectionGenerationService:
 
             stages = build_pipeline(pipeline_context)
             for stage in stages:
-                logger.info("Running pipeline stage: %s", getattr(stage, "name", stage.__class__.__name__))
+                logger.info(
+                    "Running pipeline stage: %s", getattr(stage, "name", stage.__class__.__name__)
+                )
                 stage.run(pipeline_context)
 
-            sections = pipeline_context.sections or pipeline_context.metadata.get("enriched_sections", sections)
+            sections = pipeline_context.sections or pipeline_context.metadata.get(
+                "enriched_sections", sections
+            )
 
         # Apply validation and cleanup
         sections = self._validate_and_clean(list(sections), transcript_dicts)
@@ -131,7 +151,17 @@ class SectionGenerationService:
         video_id: str,
         config_obj: SectionGenerationConfig,
     ) -> list[dict[str, Any]]:
-        """Generate sections using RAG approach."""
+        """Generate sections using RAG approach.
+
+        Args:
+            transcript: Transcript segments as list of dicts.
+            video_id: Video identifier.
+            config_obj: Section generation configuration.
+
+        Returns:
+            List of section dicts with 'title' and 'start' keys.
+        """
+
         if self.rag_system is None:
             self.rag_system = RAGSystem()
         num_sections = (config_obj.min_sections + config_obj.max_sections) // 2
@@ -165,6 +195,7 @@ class SectionGenerationService:
         Accepts lists of dicts, TranscriptSegment objects (with .to_dict()),
         or arbitrary objects with a .to_dict() or __dict__ mapping.
         """
+
         if not transcript:
             raise ValueError("Transcript cannot be empty")
 
@@ -177,7 +208,8 @@ class SectionGenerationService:
             to_dict = getattr(seg, "to_dict", None)
             if callable(to_dict):
                 try:
-                    normalized.append(to_dict())
+                    result = to_dict()
+                    normalized.append(dict(result))
                     continue
                 except Exception:
                     # fallthrough to other attempts
@@ -185,7 +217,7 @@ class SectionGenerationService:
             # Fallback: dataclass or object with __dict__
             if hasattr(seg, "__dict__"):
                 try:
-                    normalized.append({k: v for k, v in vars(seg).items()})
+                    normalized.append(dict(vars(seg)))
                     continue
                 except Exception:
                     pass
@@ -195,7 +227,12 @@ class SectionGenerationService:
         return normalized
 
     def _generate_video_id(self, transcript: list[dict[str, Any]]) -> str:
-        """Generate video ID from transcript hash."""
+        """Generate video ID from transcript hash.
+
+        Args:
+            transcript: Transcript segments as list of dicts.
+        """
+
         import hashlib
 
         text = "".join(seg["text"] for seg in transcript[:100])
@@ -205,35 +242,42 @@ class SectionGenerationService:
         self, sections: list[Section], transcript: list[dict[str, Any]]
     ) -> list[Section]:
         """Validate and clean sections."""
-        max_time = max(seg["start"] + seg.get("duration", 0) for seg in transcript)
+        max_time = max(
+            (seg.get("start", 0.0) or 0.0) + (seg.get("duration", 0.0) or 0.0) for seg in transcript
+        )
         valid_sections = []
         for section in sections:
             # Validate timestamp
             if 0 <= section.start <= max_time:
-                # Clean title
+                # Clean title (ensure title is a string even if None)
                 section.title = self._clean_title(section.title)
-                if len(section.title) >= 3:
+                if len(section.title or "") >= 3:
                     valid_sections.append(section)
         # Sort by timestamp
         valid_sections.sort(key=lambda s: s.start)
         return valid_sections
 
-    def _clean_title(self, title: str) -> str:
+    def _clean_title(self, title: str | None) -> str:
         """Clean section title."""
+
         import re
+
+        if title is None:
+            title = ""
+
         # Remove prefixes
-        prefixes = ["response:", "answer:", "title:", "section:", "===" , "_____", "---"]
+        prefixes = ["response:", "answer:", "title:", "section:", "===", "_____", "---"]
         title_lower = title.lower()
         for prefix in prefixes:
             if title_lower.startswith(prefix):
-                title = title[len(prefix):].strip()
+                title = title[len(prefix) :].strip()
                 title_lower = title.lower()
         # Remove special chars
-        title = title.strip('"\'`.,;:!?-–—')
-        while title and title[0] in '_=-~*#@[](){}':
+        title = title.strip("\"'`.,;:!?-–—")
+        while title and title[0] in "_=-~*#@[](){}":
             title = title[1:].strip()
         # Remove patterns
-        title = re.sub(r'\bsection at \d+s?\b', '', title, flags=re.IGNORECASE).strip()
+        title = re.sub(r"\bsection at \d+s?\b", "", title, flags=re.IGNORECASE).strip()
         # Capitalize
         if title and not title[0].isupper():
             title = title[0].upper() + title[1:]
@@ -251,27 +295,32 @@ class SectionGenerationService:
         # Try DeepL first (preferred)
         if api_key:
             try:
-                translator = DeepLAdapter(api_key)
+                translator: TranslationProvider = DeepLAdapter(api_key)
                 logger.info("Using DeepL for translation")
                 return translator
             except Exception as e:
-                logger.error("Failed to initialize DeepL: %s; falling back to local LLM translator", e, exc_info=True)
+                logger.error(
+                    "Failed to initialize DeepL: %s; falling back to local LLM translator",
+                    e,
+                    exc_info=True,
+                )
         else:
             logger.info("DEEPL_API_KEY not set; using local LLM translator as fallback")
 
         # Fallback to local LlamaCpp translator
         try:
             from src.core.services.translation import LlamaCppTranslator
-            translator = LlamaCppTranslator()
+
+            provider = cast(TranslationProvider, LlamaCppTranslator())
             logger.info("Using local LlamaCpp translator (fallback mode)")
-            return translator
+            return provider
         except Exception as e:
             logger.error(
                 "❌ CRITICAL: Failed to initialize local translator: %s\n"
                 "This will cause poor title quality for non-English transcripts!\n"
                 "Fix: Ensure DEEPL_API_KEY is set or LOCAL_MODEL_PATH points to a valid model.",
                 e,
-                exc_info=True
+                exc_info=True,
             )
             return None
 
@@ -305,8 +354,8 @@ class SectionGenerationService:
         MAX_BATCH_SIZE = 4500  # Leave buffer for special chars
         batches: list[tuple[str, list[int]]] = []  # (combined_text, segment_indices)
 
-        current_batch = []
-        current_indices = []
+        current_batch: list[str] = []
+        current_indices: list[int] = []
         current_size = 0
 
         for idx, seg in enumerate(transcript):
@@ -338,24 +387,28 @@ class SectionGenerationService:
             "Batched %d segments into %d chunks (avg %.0f segments/chunk)",
             len(transcript),
             len(batches),
-            len(transcript) / max(len(batches), 1)
+            len(transcript) / max(len(batches), 1),
         )
 
         # Translate batches
         translated_map: dict[int, str] = {}
         for batch_idx, (batch_text, indices) in enumerate(batches):
             try:
-                logger.info("Translating batch %d/%d (%d segments)", batch_idx + 1, len(batches), len(indices))
+                logger.info(
+                    "Translating batch %d/%d (%d segments)",
+                    batch_idx + 1,
+                    len(batches),
+                    len(indices),
+                )
                 translated_batch = translator.translate(
-                    batch_text,
-                    target_lang=target_lang,
-                    source_lang=source_lang
+                    batch_text, target_lang=target_lang, source_lang=source_lang
                 )
 
                 # Split translated batch back into segments using markers
                 import re
+
                 # Extract segments: [SEG_123]translated text
-                pattern = r'\[SEG_(\d+)\]([^\[]*?)(?=\[SEG_|\Z)'
+                pattern = r"\[SEG_(\d+)\]([^\[]*?)(?=\[SEG_|\Z)"
                 matches = re.findall(pattern, translated_batch, re.DOTALL)
 
                 for seg_id_str, translated_text in matches:
@@ -363,7 +416,9 @@ class SectionGenerationService:
                     translated_map[seg_id] = translated_text.strip()
 
             except Exception as e:
-                logger.warning("Batch translation failed for batch %d: %s; keeping originals", batch_idx + 1, e)
+                logger.warning(
+                    "Batch translation failed for batch %d: %s; keeping originals", batch_idx + 1, e
+                )
                 # Fallback: keep original text for this batch
                 for idx in indices:
                     if idx not in translated_map:
@@ -376,7 +431,11 @@ class SectionGenerationService:
             new_seg["text"] = translated_map.get(idx, seg.get("text", ""))
             result.append(new_seg)
 
-        logger.info("✅ Translation complete: %d segments translated in %d batches", len(result), len(batches))
+        logger.info(
+            "✅ Translation complete: %d segments translated in %d batches",
+            len(result),
+            len(batches),
+        )
         return result
 
     def _get_original_lang_code(
@@ -388,5 +447,6 @@ class SectionGenerationService:
         if transcript_dicts and transcript_dicts[0].get("original_language_code"):
             return transcript_dicts[0].get("original_language_code")
         return source_lang
+
 
 __all__ = ["SectionGenerationService"]

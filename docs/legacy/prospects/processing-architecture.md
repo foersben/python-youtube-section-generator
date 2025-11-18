@@ -50,5 +50,3 @@ Next steps for implementation
 - Implement the `Section` dataclass and stage interface in `src/core/models`.
 - Implement a simple pipeline orchestrator class in `src/core/pipeline.py`.
 - Start with a `staged` implementation that mirrors the 3 phases described in the prospects todos.
-
-
