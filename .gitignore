@@ -46,11 +46,12 @@ site/
 
 # Local models (root-only) - keep src/models/ tracked
 /models/
+!src/models/
 
 # Local DBs, caches and translation artifacts
 /.chromadb/
-/.cache/translations/
-/.cache/translations/*
+.cache/
+# (specific translation cache file kept ignored via overall .cache/)
 
 # Local tooling helpers
 setup-act.sh
