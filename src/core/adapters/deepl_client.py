@@ -40,19 +40,3 @@ class DeepLClient:
 
 
 __all__ = ["DeepLClient"]
-
-
-# Backwards-compatible helper function expected by older modules
-def translate_text(text: str, target_lang: str, source_lang: str | None = None) -> str:
-    """Translate text using DeepL adapter (compatibility helper).
-
-    Args:
-        text: Text to translate.
-        target_lang: Target language code (e.g., 'EN', 'DE').
-        source_lang: Optional source language code.
-
-    Returns:
-        Translated text as string.
-    """
-    adapter = _get_deepl_adapter(api_key=None)
-    return adapter.translate(text=text, target_lang=target_lang, source_lang=source_lang)
