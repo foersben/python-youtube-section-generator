@@ -520,15 +520,83 @@ class LlamaCppTranslator(TranslationProvider):
             except Exception as e:
                 logger.debug("Auto-detect of model n_ctx_train failed: %s", e)
 
-        # If we detected a larger n_ctx from the model, use it
-        if detected_n_ctx and detected_n_ctx > n_ctx:
-            logger.info(
-                "Detected model n_ctx_train=%d which is larger than configured n_ctx=%d; using %d",
-                detected_n_ctx,
-                n_ctx,
-                detected_n_ctx,
+        # If auto-detect succeeded, decide whether to adopt the model's trained n_ctx.
+        # Soft-cap heuristic controls:
+        # - LOCAL_MODEL_MAX_CTX: if >0, cap detected_n_ctx to this value
+        # - LOCAL_MODEL_FORCE_ADOPT_CTX: if true, force adoption regardless of RAM
+        # - LOCAL_MODEL_RAM_MULTIPLE: multiple of model file size to require as free RAM (default 1.5)
+        if detected_n_ctx:
+            try:
+                max_ctx_env = int(os.getenv("LOCAL_MODEL_MAX_CTX", "0"))
+            except Exception:
+                max_ctx_env = 0
+            force_adopt = os.getenv("LOCAL_MODEL_FORCE_ADOPT_CTX", "false").lower() in (
+                "1",
+                "true",
+                "yes",
             )
-            n_ctx = detected_n_ctx
+
+            # compute model file size and available RAM
+            model_size_bytes = 0
+            try:
+                model_size_bytes = int(Path(self.model_path).stat().st_size)
+            except Exception:
+                model_size_bytes = 0
+
+            available_ram = 0
+            try:
+                import psutil
+
+                available_ram = int(psutil.virtual_memory().available)
+            except Exception:
+                # fallback to /proc/meminfo on Linux
+                try:
+                    with open("/proc/meminfo", "r") as f:
+                        for line in f:
+                            if line.startswith("MemAvailable:"):
+                                parts = line.split()
+                                available_ram = int(parts[1]) * 1024
+                                break
+                except Exception:
+                    available_ram = 0
+
+            ram_multiple = float(os.getenv("LOCAL_MODEL_RAM_MULTIPLE", "1.5"))
+
+            # decide adoption
+            adopt_ctx = detected_n_ctx
+            if max_ctx_env and max_ctx_env > 0:
+                if detected_n_ctx > max_ctx_env:
+                    logger.info(
+                        "Detected n_ctx_train=%d capped by LOCAL_MODEL_MAX_CTX=%d",
+                        detected_n_ctx,
+                        max_ctx_env,
+                    )
+                adopt_ctx = min(detected_n_ctx, max_ctx_env)
+
+            if not force_adopt and model_size_bytes > 0 and available_ram > 0:
+                required = int(model_size_bytes * ram_multiple)
+                if available_ram < required:
+                    # Not enough available RAM to safely adopt full context
+                    logger.warning(
+                        "Insufficient free RAM to adopt detected n_ctx_train=%d (model_size=%d bytes, available_ram=%d bytes, required=%d). Keeping configured n_ctx=%d. Set LOCAL_MODEL_FORCE_ADOPT_CTX=true to override or increase system RAM.",
+                        detected_n_ctx,
+                        model_size_bytes,
+                        available_ram,
+                        required,
+                        n_ctx,
+                    )
+                    # do not adopt
+                    adopt_ctx = n_ctx
+
+            # If adoption changes n_ctx, log and set
+            if adopt_ctx != n_ctx:
+                logger.info(
+                    "Setting runtime n_ctx to %d (detected %d, configured %d)",
+                    adopt_ctx,
+                    detected_n_ctx,
+                    n_ctx,
+                )
+                n_ctx = adopt_ctx
 
         # create LlamaCpp with the computed parameters
         self.llm = LlamaCpp(

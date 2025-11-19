@@ -1,11 +1,15 @@
-"""Compatibility adapters package.
+"""Adapter re-exports.
 
-Contains thin backward-compatible adapters that forward to the new
-refactored implementations in the `llm` and `services` packages.
+This module re-exports legacy adapter classes for backward
+compatibility and discoverability.
 
-This module intentionally avoids importing submodules at package import
-time to keep startup lightweight and to avoid circular import issues.
+Keep this thin: adapters themselves are small deprecated shims
+that delegate to the refactored services/providers in
+`src.core.services` and `src.core.llm`.
 """
 
-# Export submodule names – import submodules directly when needed
-__all__ = ["local_llm_client", "gemini_client", "deepl_client"]
+from .deepl_client import DeepLClient
+from .gemini_client import GeminiService
+from .local_llm_client import LocalLLMClient
+
+__all__ = ["DeepLClient", "GeminiService", "LocalLLMClient"]
