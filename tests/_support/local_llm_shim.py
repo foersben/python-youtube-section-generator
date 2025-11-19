@@ -1,13 +1,8 @@
-"""Compatibility shim for local LLM client used by tests.
+"""Test-support local LLM shim moved out of core.
 
-This module intentionally provides a lightweight, test-friendly shim of the
-original `LocalLLMClient` API so unit tests that patch `AutoTokenizer` and
-`AutoModelForCausalLM` continue to work without pulling heavy dependencies.
-
-The implementation is minimal: it calls `AutoTokenizer.from_pretrained` and
-`AutoModelForCausalLM.from_pretrained` (which tests patch), tracks a few
-properties (device, model_name), and exposes helper methods used by tests
-(`_validate_sections`, `_extract_json`, `generate_sections`).
+This module provides the same lightweight test shim previously present in
+`src.core.local_llm_client`. Tests should import from here instead of the
+source package to reduce core surface area.
 """
 
 from __future__ import annotations

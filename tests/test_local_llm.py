@@ -1,4 +1,9 @@
-"""Tests for local LLM client functionality."""
+"""Tests for local LLM client functionality (use test-support shim).
+
+This test suite now imports the lightweight LocalLLMClient shim from
+`tests._support.local_llm_shim` so tests don't depend on the core package
+implementation and to allow pruning of source-level test shims.
+"""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,7 +11,7 @@ import pytest
 
 
 class TestLocalLLMClient:
-    """Test suite for LocalLLMClient."""
+    """Test suite for LocalLLMClient using test-support shim."""
 
     @pytest.fixture
     def mock_model_components(self):
@@ -28,15 +33,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=True),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -50,15 +55,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -71,15 +76,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -93,15 +98,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -119,15 +124,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -147,15 +152,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 
@@ -179,15 +184,15 @@ class TestLocalLLMClient:
         with (
             patch("torch.cuda.is_available", return_value=False),
             patch(
-                "src.core.local_llm_client.AutoTokenizer.from_pretrained",
+                "tests._support.local_llm_shim.AutoTokenizer.from_pretrained",
                 return_value=mock_tokenizer,
             ),
             patch(
-                "src.core.local_llm_client.AutoModelForCausalLM.from_pretrained",
+                "tests._support.local_llm_shim.AutoModelForCausalLM.from_pretrained",
                 return_value=mock_model,
             ),
         ):
-            from src.core.local_llm_client import LocalLLMClient
+            from tests._support.local_llm_shim import LocalLLMClient
 
             client = LocalLLMClient()
 

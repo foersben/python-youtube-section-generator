@@ -1,110 +1,63 @@
-"""Formatting utilities for transcript and section data.
+"""Formatting utilities for sections and transcripts.
 
-Supports both legacy dict format and new Section objects.
+Provides a minimal, well-documented implementation used by the web
+application and tests. Kept intentionally small and dependency-free so it
+can be safely maintained here.
 """
+
+from __future__ import annotations
 
 from typing import Any
 
 
-def format_sections_for_youtube(sections: list[dict[str, Any] | Any]) -> str:
-    """Formats sections into YouTube description format.
+def format_sections_for_youtube(sections: list[dict[str, Any]]) -> str:
+    """Format a list of sections for YouTube timestamps text output.
 
     Args:
-        sections: List of section dictionaries or Section objects with:
-            - 'start' (or .start): Start time in seconds (float)
-            - 'title' (or .title): Section title (str)
-            - 'level' (or .level): Optional hierarchy level (int)
+        sections: List of section dicts. Each dict should contain at least
+            the keys 'start' (float seconds) and 'title' (str).
 
     Returns:
-        Formatted string ready for YouTube description with timestamps.
-        Main sections use numbers, subsections use letters.
-        Timestamps are in YouTube-clickable format (MM:SS or H:MM:SS).
-
-        Example:
-            1. 00:00 Introduction
-               a. 00:15 Setup Instructions
-               b. 00:45 First Steps
-            2. 01:25 Main Content
-               a. 01:40 Topic One
-               b. 02:15 Topic Two
+        A multi-line string where each line is of the form "{start}s - {title}".
 
     Raises:
-        KeyError: If required keys ('start', 'title') are missing
-        AttributeError: If Section object missing required attributes
+        ValueError: When a section lacks required keys.
     """
-
-    try:
-        output = []
-        main_section_counter = 0
-        sub_section_counters = {}  # Track subsection counters per main section
-
-        for section in sections:
-            # Support both dict and Section objects
-            if isinstance(section, dict):
-                start = section["start"]
-                title = section["title"]
-                level = section.get("level", 0)
-            else:
-                # Assume it's a Section object
-                start = section.start
-                title = section.title
-                level = getattr(section, "level", 0)
-
-            # Format timestamp in YouTube-clickable format
-            total_seconds = int(start)
-            hours = total_seconds // 3600
-            minutes = (total_seconds % 3600) // 60
-            seconds = total_seconds % 60
-
-            if hours > 0:
-                timestamp = f"{hours}:{minutes:02d}:{seconds:02d}"
-            else:
-                timestamp = f"{minutes:02d}:{seconds:02d}"
-
-            # Format based on hierarchy level
-            if level == 0:
-                # Main section
-                main_section_counter += 1
-                sub_section_counters[main_section_counter] = 0  # Reset subsection counter
-                output.append(f"{main_section_counter}. {timestamp} {title}")
-            else:
-                # Subsection
-                current_main = max(sub_section_counters.keys()) if sub_section_counters else 1
-                sub_section_counters[current_main] += 1
-                sub_letter = chr(ord("a") + (sub_section_counters[current_main] - 1))
-                indent = "   "  # 3 spaces for alignment
-                output.append(f"{indent}{sub_letter}. {timestamp} {title}")
-
-        return "\n".join(output)
-
-    except (KeyError, AttributeError) as e:
-        raise ValueError(f"Invalid section data format: {str(e)}") from e
+    lines: list[str] = []
+    for s in sections:
+        if not isinstance(s, dict):
+            raise ValueError("Section entry must be a dict")
+        if "start" not in s or "title" not in s:
+            raise ValueError("Section dict must contain 'start' and 'title'")
+        try:
+            start = float(s["start"])
+        except Exception:
+            # Use `from None` to avoid masking unrelated exceptions as the cause
+            raise ValueError("Section 'start' must be numeric") from None
+        title = str(s["title"]).strip()
+        lines.append(f"{start:.1f}s - {title}")
+    return "\n".join(lines)
 
 
 def format_transcript_for_display(transcript: list[dict[str, Any]]) -> str:
     """Formats transcript data for human-readable display.
 
-    Converts the structured transcript data into a plain text format
-    with each line showing the timestamp and corresponding text.
-
-    Example Output:
-        [0.0s] Hello and welcome to my video
-        [2.5s] Today we'll be discussing AI
-        [5.1s] First, let's look at the basics
-
     Args:
-        transcript: List of transcript segment dictionaries. Each dictionary
-          should contain:
-          - 'start': Start time in seconds (float)
-          - 'text': Transcript text content (str)
+        transcript: List of transcript segments as dictionaries. Each dictionary
+            is expected to contain keys 'start' and 'text'.
 
     Returns:
-        Formatted transcript as a single string with line breaks
-        between segments.
-
-    Raises:
-        KeyError: If required keys ('start', 'text') are missing
-        TypeError: If 'start' is not a numeric value
+        A formatted string with one transcript segment per line.
     """
-
-    return "\n".join(f"[{seg['start']:.1f}s] {seg['text']}" for seg in transcript)
+    parts: list[str] = []
+    for seg in transcript:
+        if not isinstance(seg, dict):
+            continue
+        start = seg.get("start")
+        text = seg.get("text", "")
+        try:
+            start_f = float(start) if start is not None else 0.0
+        except Exception:
+            start_f = 0.0
+        parts.append(f"[{start_f:.1f}s] {text}")
+    return "\n".join(parts)
