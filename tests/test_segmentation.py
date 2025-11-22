@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from src.core.retrieval.segmentation import chunk_transcript_text, select_coarse_sections
+from src.core.retrieval.segmentation import (
+    chunk_transcript_text,
+    select_coarse_sections,
+)
 
 
 def make_dummy_transcript(n: int = 60) -> list[dict]:
@@ -33,4 +36,3 @@ def test_select_coarse_sections():
     # starts should be increasing
     starts = [s["start"] for s in sections]
     assert all(starts[i] < starts[i + 1] for i in range(len(starts) - 1))
-

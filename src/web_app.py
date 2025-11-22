@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -31,9 +30,6 @@ setup_logging(
     log_file="logs/web_app.log" if not getattr(sys, "frozen", False) else None,
     colored=True,
 )
-
-# Suppress noisy Flask/Werkzeug logs in development
-logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
 logger = get_logger(__name__)
 
@@ -101,7 +97,7 @@ def index() -> Response:
 
 
 @app.route("/generate-sections", methods=["POST"])
-def generate_sections() -> Response:
+def generate_sections() -> tuple[Response, int]:
     """Generates YouTube-style section timestamps from a video transcript.
 
     Processes POST request with video ID and parameters, then:
@@ -242,40 +238,40 @@ def generate_sections() -> Response:
         # Post-process titles: replace numeric-only or garbage titles with
         # a cleaned fallback derived from nearby transcript text or a timestamp.
         # Only apply this when titles look truly invalid (not just because they're in English)
-        def _has_letter(s: str) -> bool:
-            for ch in s:
-                if ch.isalpha():
-                    return True
-            return False
+        # def _has_letter(s: str) -> bool:
+        #     for ch in s:
+        #         if ch.isalpha():
+        #             return True
+        #     return False
 
-        def _is_valid_title(title: str) -> bool:
-            """Check if title looks like a valid section title (not garbage)."""
-            # Must have letters
-            if not _has_letter(title):
-                return False
+        # def _is_valid_title(title: str) -> bool:
+        #     """Check if title looks like a valid section title (not garbage)."""
+        #     # Must have letters
+        #     if not _has_letter(title):
+        #         return False
 
-            # Must be at least 3 characters
-            if len(title.strip()) < 3:
-                return False
+        #     # Must be at least 3 characters
+        #     if len(title.strip()) < 3:
+        #         return False
 
-            # Must not be all digits
-            if title.isdigit():
-                return False
+        #     # Must not be all digits
+        #     if title.isdigit():
+        #         return False
 
-            # Must not contain long digit sequences (like timestamps)
-            if re.search(r"\d{3,}", title):
-                return False
+        #     # Must not contain long digit sequences (like timestamps)
+        #     if re.search(r"\d{3,}", title):
+        #         return False
 
-            # Must not be just punctuation or special chars
-            if not re.search(r"[A-Za-z]", title):
-                return False
+        #     # Must not be just punctuation or special chars
+        #     if not re.search(r"[A-Za-z]", title):
+        #         return False
 
-            # Must have at least one space (indicating multiple words) or be a proper noun
-            words = title.split()
-            if len(words) < 2 and not any(word[0].isupper() for word in words):
-                return False
+        #     # Must have at least one space (indicating multiple words) or be a proper noun
+        #     words = title.split()
+        #     if len(words) < 2 and not any(word[0].isupper() for word in words):
+        #         return False
 
-            return True
+        #     return True
 
         # Format for YouTube (text) — robustly handle formatting errors
         try:
@@ -316,7 +312,7 @@ def generate_sections() -> Response:
 
 
 @app.route("/download-sections", methods=["POST"])
-def download_sections() -> send_file:
+def download_sections() -> Response:
     """Provides downloadable text file of generated sections.
 
     Request Form Parameters:
@@ -379,7 +375,43 @@ def format_transcript_for_display(transcript: list[dict[str, Any]]) -> str:
 if __name__ == "__main__":
     """Main entry point for running the Flask application.
 
-    Starts a development server on port 5000 with debug mode enabled.
+    Starts a development server on host/port configured via environment variables.
+    Logs startup information reliably from the reloader child to ensure the URL and resolved
+    local IP are printed (avoids duplicates when Flask debug/reloader is active).
     """
 
-    app.run(debug=True, port=5000)
+    host = os.getenv("FLASK_RUN_HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "1") not in {"0", "false", "False"}
+
+    # Only emit the reliable startup log from the reloader child to avoid duplicate messages
+    # when Flask debug reloader spawns a parent and a child process. The child sets
+    # WERKZEUG_RUN_MAIN="true" in its env.
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not debug:
+        # Allow werkzeug to print its info-level banner in the child process
+        logging.getLogger("werkzeug").setLevel(logging.INFO)
+
+        # Try to resolve a usable local IP address (works even if host is 0.0.0.0)
+        try:
+            import socket
+
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # doesn't actually send data; used only to determine outbound IP
+            s.connect(("8.8.8.8", 80))
+            resolved_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            resolved_ip = host
+
+        logger.info(
+            "Starting Flask app on %s:%d (access URLs: http://%s:%d and http://localhost:%d) (pid=%s)",
+            host,
+            port,
+            resolved_ip,
+            port,
+            port,
+            os.getpid(),
+        )
+
+    # Finally, run the Flask development server using the configured values
+    app.run(debug=debug, host=host, port=port)

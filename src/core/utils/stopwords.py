@@ -31,7 +31,11 @@ def _load_resource_stopwords(language_code: str) -> set[str]:
     except Exception:  # pragma: no cover - IO guard
         logger.debug("Failed to read stopword resource for %s", language_code, exc_info=True)
         return set()
-    return {line.strip().lower() for line in data.splitlines() if line.strip() and not line.startswith("#")}
+    return {
+        line.strip().lower()
+        for line in data.splitlines()
+        if line.strip() and not line.startswith("#")
+    }
 
 
 @lru_cache(maxsize=64)
@@ -71,4 +75,3 @@ def get_stopwords(language_code: str) -> set[str]:
 
 
 __all__ = ["get_stopwords"]
-

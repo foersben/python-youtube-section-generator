@@ -290,9 +290,22 @@ class SectionGenerationService:
 
     # ---------------- Translation helpers ----------------
     def _get_translator(self) -> TranslationProvider | None:
-        api_key = os.getenv("DEEPL_API_KEY")
+        # Prefer Google (deep-translator) first as the primary translation provider.
+        try:
+            from src.core.services.translation import GoogleTranslatorAdapter
 
-        # Try DeepL first (preferred)
+            try:
+                google = GoogleTranslatorAdapter()
+                logger.info("Using GoogleTranslatorAdapter (deep-translator) for translation")
+                return google
+            except Exception as e:
+                logger.debug("GoogleTranslatorAdapter not available: %s", e)
+        except Exception:
+            # import failure; deep-translator not installed
+            pass
+
+        # Next prefer DeepL if API key is configured
+        api_key = os.getenv("DEEPL_API_KEY")
         if api_key:
             try:
                 translator: TranslationProvider = DeepLAdapter(api_key)
@@ -305,7 +318,7 @@ class SectionGenerationService:
                     exc_info=True,
                 )
         else:
-            logger.info("DEEPL_API_KEY not set; using local LLM translator as fallback")
+            logger.info("DEEPL_API_KEY not set; trying local LLM translator as fallback")
 
         # Fallback to local LlamaCpp translator
         try:

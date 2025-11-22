@@ -12,19 +12,26 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import multiprocessing as mp
 import os
 import re
+import threading
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Callable, Optional, cast
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.core.embeddings import EmbeddingsFactory
+# Add missing imports used later in the module
+from src.core.embeddings.factory import EmbeddingsFactory
+from src.core.utils.stopwords import get_stopwords
+
+# Type for optional segmentation function imported from `src.core.retrieval.segmentation`
+SegmentationFn = Callable[..., list[dict[str, Any]]]
+
+select_coarse_sections: Optional[SegmentationFn] = None
 
 logger = logging.getLogger(__name__)
-
-# Centralized embeddings provider (CPU-only default)
 
 
 class TranscriptRAG:
@@ -53,24 +60,51 @@ class TranscriptRAG:
             )
 
         except Exception:
-            # Some langchain releases may reorganize modules; try common alternatives
+            # Try several alternative package layouts that changed across releases
+            imported = False
+            # 1) Newer split out package name used by some ecosystems
             try:
-                from langchain.text_splitter import (
-                    CharacterTextSplitter as _CTS,  # type: ignore
+                from langchain_text_splitters import (
+                    RecursiveCharacterTextSplitter,  # type: ignore
                 )
 
-                class _FallbackRecursiveCharacterTextSplitter(_CTS):  # type: ignore
-                    """Thin compatibility wrapper mapping to CharacterTextSplitter API."""
+                imported = True
+            except Exception:
+                pass
 
+            # 2) Alternate singular package name
+            if not imported:
+                try:
+                    from langchain_text_splitter import (
+                        RecursiveCharacterTextSplitter,  # type: ignore
+                    )
+
+                    imported = True
+                except Exception:
                     pass
 
-                RecursiveCharacterTextSplitter = _FallbackRecursiveCharacterTextSplitter
+            # 3) Fallback to CharacterTextSplitter under langchain (older names)
+            if not imported:
+                try:
+                    from langchain.text_splitter import (
+                        CharacterTextSplitter as _CTS,  # type: ignore
+                    )
 
-            except Exception:
+                    class _FallbackRecursiveCharacterTextSplitter(_CTS):  # type: ignore
+                        """Thin compatibility wrapper mapping to CharacterTextSplitter API."""
+
+                        pass
+
+                    RecursiveCharacterTextSplitter = _FallbackRecursiveCharacterTextSplitter
+                    imported = True
+                except Exception:
+                    imported = False
+
+            if not imported:
                 # Fallback: provide a minimal local splitter implementation
                 logger.warning(
-                    "langchain.text_splitter not available; using local fallback splitter. "
-                    "Install 'langchain' for full functionality."
+                    "langchain text splitter not available; using local fallback splitter. "
+                    "To enable full RAG splitting features install a compatible text-splitter package, e.g. 'pip install langchain' or 'pip install langchain_text_splitters'."
                 )
 
                 class _FallbackLocalRecursiveCharacterTextSplitter:
@@ -179,21 +213,41 @@ class TranscriptRAG:
         import multiprocessing
 
         n_threads = multiprocessing.cpu_count()
-        self.llm = LlamaCpp(
-            model_path=self.model_path,
-            n_ctx=4096,
-            n_threads=n_threads,
-            temperature=0.05,  # Very low for deterministic, focused output
-            max_tokens=64,  # Short titles only
-            top_p=0.85,  # Slightly lower for more focused sampling
-            top_k=20,  # Limit to top 20 tokens for consistency
-            repeat_penalty=1.1,  # Discourage repetition
-            verbose=False,
+        # Allow auto-detection of model n_ctx (trusting host RAM) when enabled
+        auto_detect_ctx = os.getenv("LOCAL_MODEL_AUTO_DETECT_CTX", "true").lower() in (
+            "1",
+            "true",
+            "yes",
         )
+        llm_kwargs: dict[str, object] = {
+            "model_path": self.model_path,
+            "n_threads": n_threads,
+            "temperature": 0.05,
+            "max_tokens": 64,
+            "top_p": 0.85,
+            "top_k": 20,
+            "repeat_penalty": 1.1,
+            "verbose": False,
+        }
+        if not auto_detect_ctx:
+            # Keep legacy safe default if user does not want to auto-detect
+            llm_kwargs["n_ctx"] = int(os.getenv("LOCAL_MODEL_N_CTX", "4096"))
+
+        self.llm = LlamaCpp(**llm_kwargs)  # type: ignore[arg-type]
+
+        # Concurrency limiter for LLM invocations to avoid spawning many
+        # simultaneous heavy model calls that overload CPU and memory.
+        max_concurrency = int(os.getenv("LOCAL_MODEL_MAX_CONCURRENCY", "1"))
+        self._llm_semaphore = threading.BoundedSemaphore(value=max_concurrency)
+
+        # Cache directory for title refinements
+        self._title_cache_dir = Path(os.getenv("RAG_TITLE_CACHE_DIR", ".cache/rag_titles"))
+        self._title_cache_dir.mkdir(parents=True, exist_ok=True)
 
         self.vectorstore: _Any = None
+        self.chroma_client: Any | None = None
         self.current_video_id: str | None = None
-        logger.info("\u2705 RAG system initialized")
+        logger.info("✅ RAG system initialized")
 
     # ----------------------- Internal helpers -----------------------
     def _get_video_hash(self, video_id: str) -> str:
@@ -233,57 +287,209 @@ class TranscriptRAG:
         combined = re.sub(r"\s+", " ", combined)
         return combined[:max_chars]
 
-    def _refine_title_with_llm(self, snippet: str) -> str:
-        """Generate a concise section title from a transcript snippet."""
-        snippet = (snippet or "").strip()
-        if not snippet:
-            return "Section"
+    def _safe_llm_invoke(self, prompt: str, timeout: int | None = None) -> str | None:
+        """Invoke the local LLM with a timeout.
 
-        context_snippet = snippet[:1500]
-        prompt = (
-            "You write table-of-contents headings for long-form videos. "
-            "Given the transcript excerpt below, produce one descriptive title (3-10 words). "
-            "It must be a standalone phrase without prefixes or numbering.\n\n"
-            f'Excerpt:\n"...{context_snippet}..."\n\nTitle:'
+        Two modes are supported:
+        - Process mode (recommended): spawn a child process that creates its own
+          Llama instance and runs the prompt. If the child doesn't return within
+          `timeout` seconds it is terminated. Enable with env var
+          LOCAL_MODEL_USE_PROCESS=true (default: false).
+
+        - Thread mode (legacy): run self.llm.invoke in a thread and wait with a
+          timeout. This cannot kill underlying C work but avoids blocking the
+          request thread; kept as fallback.
+
+        Returns the raw string result or None on timeout/error.
+        """
+        use_process = os.getenv("LOCAL_MODEL_USE_PROCESS", "false").lower() in (
+            "1",
+            "true",
+            "yes",
         )
+
+        # Configure default timeout from environment if not provided
+        if timeout is None:
+            try:
+                timeout = int(os.getenv("LOCAL_MODEL_LLM_TIMEOUT", "30"))
+            except Exception:
+                timeout = 30
+
+        # Acquire concurrency semaphore to limit parallel LLM work
+        acquired = self._llm_semaphore.acquire(timeout=0)
+        if not acquired:
+            # No slot available; wait a little and try to acquire with timeout
+            logger.debug("LLM concurrency limit reached; waiting for a slot")
+            if not self._llm_semaphore.acquire(timeout=timeout):
+                logger.warning("LLM concurrency wait timed out after %ds", timeout)
+                return None
+
         try:
-            result = self.llm.invoke(prompt)  # type: ignore[attr-defined]
-            raw_title = str(result).strip().splitlines()[0]
-            polished = self._polish_title(raw_title)
-            if len(polished.split()) >= 2:
-                return polished
-        except Exception as exc:
-            logger.error("LLM title refinement failed: %s", exc, exc_info=True)
+            if use_process:
+                # Use spawn context for better isolation
+                ctx = mp.get_context("spawn")
 
-        return self._clean_title_tokens(snippet, self.detected_language)
+                def _worker(pipe_conn, model_path, prompt_text):
+                    """Child process target: create its own Llama and invoke prompt.
 
-    def _polish_title(self, title: str) -> str:
-        """Remove artifacts and normalize capitalization."""
-        title = title.strip().strip("\"'`.,;:!?-–—")
-        artifacts = [
-            "assistant",
-            "response",
-            "title",
-            "topics",
-            "here is",
-            "here's",
-            "sure",
-            "of course",
-            "intro",
-            "section",
-        ]
-        for artifact in artifacts:
-            title = re.sub(rf"\b{artifact}\b:?", "", title, flags=re.IGNORECASE)
+                    We import inside the child to avoid pickling the parent LLM.
+                    """
+                    try:
+                        # Import in child
+                        from llama_cpp import Llama
 
-        words = title.split()
-        if words and words[0].lower() in {"the", "a", "an"}:
-            words = words[1:]
-        title = " ".join(words).strip()
+                        llm_child = Llama(model_path=model_path, verbose=False)
+                        try:
+                            res = llm_child.invoke(prompt_text)  # type: ignore[attr-defined]
+                        except Exception as e:
+                            pipe_conn.send({"error": str(e)})
+                        else:
+                            pipe_conn.send({"result": str(res)})
+                    except Exception as e:
+                        try:
+                            pipe_conn.send({"error": f"Child error: {e}"})
+                        except Exception:
+                            pass
+                    finally:
+                        try:
+                            pipe_conn.close()
+                        except Exception:
+                            pass
 
-        if title and not title[0].isupper():
-            title = title[0].upper() + title[1:]
+                parent_conn, child_conn = mp.Pipe()
+                p = ctx.Process(target=_worker, args=(child_conn, self.model_path, prompt))
+                p.start()
+                try:
+                    if parent_conn.poll(timeout):
+                        payload = parent_conn.recv()
+                        if not payload:
+                            return None
+                        if "result" in payload:
+                            return str(payload["result"]) if payload["result"] is not None else None
+                        # error case
+                        logger.debug("LLM child returned error: %s", payload.get("error"))
+                        return None
+                    else:
+                        logger.warning("LLM invoke timed out after %ds", timeout)
+                        try:
+                            p.terminate()
+                        except Exception:
+                            logger.debug("Failed to terminate child process", exc_info=True)
+                        return None
+                finally:
+                    try:
+                        parent_conn.close()
+                    except Exception:
+                        pass
+                    p.join(timeout=1)
+            else:
+                # Thread-based fallback (cannot kill underlying C work)
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError
 
-        return title or "Section"
+                def _call():
+                    try:
+                        return self.llm.invoke(prompt)  # type: ignore[attr-defined]
+                    except Exception as e:
+                        logger.debug("LLM invoke raised: %s", e, exc_info=True)
+                        raise
+
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(_call)
+                    try:
+                        res = fut.result(timeout=timeout)
+                        return str(res)
+                    except TimeoutError:
+                        logger.warning("LLM invoke timed out after %ds", timeout)
+                        return None
+        finally:
+            try:
+                self._llm_semaphore.release()
+            except Exception:
+                pass
+
+    # ----------------------- Title cache helpers -----------------------
+    def _title_cache_path(self, video_hash: str) -> Path:
+        return self._title_cache_dir / f"{video_hash}.json"
+
+    def _load_title_cache(self, video_hash: str) -> dict[str, str]:
+        path = self._title_cache_path(video_hash)
+        try:
+            if not path.exists():
+                return {}
+            with path.open("r", encoding="utf-8") as f:
+                data: Any = json.load(f)
+            if not isinstance(data, dict):
+                return {}
+            cache: dict[str, str] = {}
+            for k, v in data.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    cache[k] = v
+            logger.debug("Loaded %d title cache entries for %s", len(cache), video_hash)
+            return cache
+        except Exception:
+            logger.debug("Failed to load title cache", exc_info=True)
+            return {}
+
+    def _save_title_cache(self, video_hash: str, cache: dict[str, str]) -> None:
+        path = self._title_cache_path(video_hash)
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(cache, f, ensure_ascii=False, indent=2)
+            logger.debug("Saved %d title cache entries for %s", len(cache), video_hash)
+        except Exception:
+            logger.debug("Failed to save title cache", exc_info=True)
+
+    def _title_cache_key(self, start_ts: float, context: str) -> str:
+        payload = f"{start_ts:.1f}|{context[:512]}".encode("utf-8", errors="ignore")
+        return hashlib.sha256(payload).hexdigest()[:16]
+
+    def _refine_title_with_llm_cached(
+        self,
+        video_id: str,
+        start_ts: float,
+        context_window: str,
+    ) -> str | None:
+        """Refine a title with LLM using a small disk cache.
+
+        If the cached value exists it is returned without calling the LLM.
+        On timeout or error, ``None`` is returned and callers are expected to
+        fall back to heuristic titles.
+        """
+        video_hash = self._get_video_hash(video_id)
+        cache = self._load_title_cache(video_hash)
+        key = self._title_cache_key(start_ts, context_window)
+
+        if key in cache:
+            title = cache[key]
+            logger.info(
+                "[cache] Reusing cached title at %.1fs for video %s -> %s",
+                start_ts,
+                video_id,
+                title,
+            )
+            return title
+
+        prompt = (
+            "You are an assistant that creates short, punchy section titles \n"
+            "for long YouTube transcripts. Given the following context from a \n"
+            "video transcript, return a concise 3-6 word title that captures \n"
+            "the main idea. Do not include timestamps or quotes.\n\n"
+            f"Context:\n{context_window}\n\nTitle:"
+        )
+
+        raw = self._safe_llm_invoke(prompt)
+        if raw is None:
+            logger.warning("LLM title refinement timed out or failed at %.1fs", start_ts)
+            return None
+
+        title = str(raw).strip().splitlines()[0].strip().strip("-:•·")
+        if not title:
+            return None
+
+        cache[key] = title
+        self._save_title_cache(video_hash, cache)
+        logger.info("[llama.cpp] Main title refined at %.1fs -> %s", start_ts, title)
+        return title
 
     # ----------------------- Indexing -----------------------
     def index_transcript(self, transcript: list[dict[str, Any]], video_id: str) -> None:
@@ -325,7 +531,11 @@ class TranscriptRAG:
         logger.info("Created %d chunks for indexing", len(chunks))
 
         video_hash = self._get_video_hash(video_id)
-        persist_directory = f".chromadb/{video_hash}"
+        # Use configured Chroma persistence directory from AppConfig
+        from src.core.config.config import AppConfig
+
+        cfg = AppConfig()
+        persist_directory = str(cfg.chromadb_dir / video_hash)
 
         logger.info("Creating vector store in %s", persist_directory)
         self.vectorstore = Chroma.from_documents(
@@ -364,198 +574,33 @@ class TranscriptRAG:
             except Exception:
                 detected_lang = "en"  # Default to English
 
-        # Language-specific stopwords
-        stopwords_by_lang = {
-            "en": {
-                "the",
-                "a",
-                "an",
-                "and",
-                "or",
-                "but",
-                "in",
-                "on",
-                "at",
-                "to",
-                "for",
-                "of",
-                "with",
-                "by",
-                "from",
-                "up",
-                "about",
-                "into",
-                "through",
-                "during",
-                "is",
-                "are",
-                "was",
-                "were",
-                "be",
-                "been",
-                "being",
-                "have",
-                "has",
-                "had",
-                "do",
-                "does",
-                "did",
-                "will",
-                "would",
-                "could",
-                "should",
-                "may",
-                "might",
-                "can",
-                "must",
-                "shall",
-                "this",
-                "that",
-                "these",
-                "those",
-                "which",
-                "who",
-                "what",
-                "where",
-                "when",
-                "why",
-                "how",
-                "all",
-                "each",
-                "every",
-                "both",
-                "few",
-                "more",
-                "most",
-                "other",
-                "some",
-                "such",
-            },
-            "de": {
-                # German stopwords
-                "der",
-                "die",
-                "das",
-                "den",
-                "dem",
-                "des",
-                "ein",
-                "eine",
-                "einer",
-                "eines",
-                "und",
-                "oder",
-                "aber",
-                "in",
-                "an",
-                "auf",
-                "zu",
-                "für",
-                "von",
-                "mit",
-                "bei",
-                "aus",
-                "über",
-                "durch",
-                "um",
-                "nach",
-                "vor",
-                "zwischen",
-                "ist",
-                "sind",
-                "war",
-                "waren",
-                "sein",
-                "haben",
-                "hat",
-                "hatte",
-                "hatten",
-                "werden",
-                "wird",
-                "wurde",
-                "wurden",
-                "kann",
-                "könnte",
-                "muss",
-                "sollte",
-                "mag",
-                "darf",
-                "dies",
-                "diese",
-                "dieser",
-                "dieses",
-                "jene",
-                "welche",
-                "wer",
-                "was",
-                "wo",
-                "wann",
-                "warum",
-                "wie",
-                "alle",
-                "jede",
-                "einige",
-                "mehr",
-                "meisten",
-                "andere",
-                "solche",
-                "äh",
-                "ähm",
-                "hmm",
-                "uh",
-                "er",
-                "also",
-                "nicht",
-                "noch",
-                "schon",
-                "nur",
-                "ich",
-                "du",
-                "wir",
-                "sie",
-                "ihm",
-                "ihr",
-                "ihn",
-                "mir",
-                "dir",
-            },
-        }
+        # Language-specific stopwords: use centralized utility
+        try:
+            stopwords_set = get_stopwords(detected_lang)
+        except Exception:
+            stopwords_set = set()
 
-        # Get appropriate stopwords for detected language
-        stop_words = stopwords_by_lang.get(detected_lang, stopwords_by_lang["en"])
-
-        # Split into words
-        words = [w for w in re.split(r"\s+", t) if w]
-
+        # Tokenize and filter
+        tokens = re.findall(r"\b[\wÄÖÜäöüß]+\b", t)
         filtered: list[str] = []
-        for w in words:
-            w_clean = w.strip("\"'`.,;:!?-–—()[]{}")
-            if not w_clean or len(w_clean) <= 2:
+        for w in tokens:
+            w_clean = w.strip().lower()
+            if w_clean in stopwords_set:
                 continue
-
-            # Reject if mostly digits
-            digits = sum(c.isdigit() for c in w_clean)
-            if digits >= len(w_clean) * 0.5:
-                continue
-
-            # Reject pure numbers or long digit sequences
-            if w_clean.isdigit() or re.search(r"\d{3,}", w_clean):
-                continue
-
-            # Skip stopwords (case-insensitive, language-aware)
-            if w_clean.lower() in stop_words:
+            # Keep short words only if they look meaningful
+            if len(w_clean) < 3:
                 continue
 
             # Language-specific capitalization logic
             if detected_lang == "de":
                 # German: All nouns are capitalized - strong signal for important words
-                if w_clean[0].isupper():
+                if w[0].isupper():
                     filtered.append(w_clean)
                 elif len(filtered) < 1:  # Allow first word even if lowercase
                     filtered.append(w_clean)
             else:
                 # English/other: Prefer capitalized (proper nouns), but allow lowercase if few words
-                if w_clean[0].isupper() or len(filtered) < 2:
+                if w[0].isupper() or len(filtered) < 2:
                     filtered.append(w_clean)
 
             if len(filtered) >= 5:  # Limit to 5 words max
@@ -701,13 +746,41 @@ class TranscriptRAG:
         retrieval_k: int,
     ) -> list[dict[str, Any]]:
         """Generate hierarchical sections using semantic boundaries and refined prompts."""
-        main_sections = self._find_semantic_boundaries(transcript, distance_percentile=25)
+        # Prefer segmentation-based coarse selection when available and enabled.
+        use_seg = os.getenv("RAG_USE_SEGMENTATION", "true").lower() in ("1", "true", "yes")
+        main_sections: list[dict[str, Any]] = []
+        if use_seg and select_coarse_sections is not None:
+            try:
+                segs = select_coarse_sections(
+                    transcript,
+                    target_sections=max(3, min(5, main_sections_count)),
+                    chunk_size=self.chunk_size,
+                    chunk_overlap=self.chunk_overlap,
+                )
+                # select_coarse_sections returns [{'start': float, 'title': str}, ...]
+                if segs:
+                    # Map coarse sections to nearest original transcript segment objects
+                    for s in segs:
+                        nearest = min(
+                            transcript,
+                            key=lambda sg: abs(sg.get("start", 0.0) - float(s.get("start", 0.0))),
+                        )
+                        main_sections.append(nearest)
+            except Exception:
+                logger.debug("Segmentation-based selection failed; falling back", exc_info=True)
+
+        if not main_sections:
+            main_sections = self._find_semantic_boundaries(transcript, distance_percentile=25)
         if not main_sections:
             return []
 
         sections: list[dict[str, Any]] = []
         use_llm_titles = os.getenv("USE_LLM_TITLES", "true").lower() == "true"
         vectorstore_available = getattr(self, "vectorstore", None) is not None
+
+        main_sections = self._select_main_sections(
+            main_sections, max(3, min(5, main_sections_count))
+        )
 
         for idx, main_seg in enumerate(main_sections):
             main_start = float(main_seg.get("start", 0.0))
@@ -716,17 +789,24 @@ class TranscriptRAG:
             )
 
             main_title = self._clean_title_tokens(main_seg.get("text", ""), self.detected_language)
-            if use_llm_titles and vectorstore_available and context_window:
+            if (
+                use_llm_titles
+                and vectorstore_available
+                and context_window
+                and self.current_video_id
+            ):
                 try:
-                    main_title = self._refine_title_with_llm(context_window)
-                    logger.info(
-                        "[llama.cpp] Main title refined at %.1fs -> %s",
-                        main_start,
-                        main_title,
+                    cached = self._refine_title_with_llm_cached(
+                        video_id=self.current_video_id,
+                        start_ts=main_start,
+                        context_window=context_window,
                     )
+                    if cached is not None:
+                        main_title = cached
                 except Exception:
                     logger.warning(
-                        "Main title refinement failed at %.1fs; using heuristic", main_start
+                        "Main title refinement failed at %.1fs; using heuristic",
+                        main_start,
                     )
 
             sections.append({"title": main_title, "start": main_start, "level": 0})
@@ -825,115 +905,123 @@ class TranscriptRAG:
 
     # ----------------------- Cleanup -----------------------
     def cleanup(self) -> None:
+        """Best-effort cleanup of heavy resources held by the RAG system.
+
+        This method attempts to persist/close the vectorstore and chroma client
+        if present, release the local LLM reference (calling .close() if
+        available), and reset runtime state. All operations are non-fatal and
+        failures are logged at DEBUG level.
+        """
         logger.info("Cleaning up RAG resources...")
         try:
+            # Vectorstore persist/close if available
             if getattr(self, "vectorstore", None) is not None:
                 try:
-                    # Removed deprecated persist() call - ChromaDB 0.4.x auto-persists
-                    pass
+                    if hasattr(self.vectorstore, "persist"):
+                        try:
+                            self.vectorstore.persist()
+                        except Exception:
+                            logger.debug("Vectorstore.persist() failed", exc_info=True)
+                    if hasattr(self.vectorstore, "close"):
+                        try:
+                            self.vectorstore.close()
+                        except Exception:
+                            logger.debug("Vectorstore.close() failed", exc_info=True)
                 except Exception:
                     logger.debug("Vectorstore cleanup failed", exc_info=True)
-                try:
-                    if hasattr(self.vectorstore, "shutdown"):
-                        self.vectorstore.shutdown()
-                except Exception:
-                    logger.debug("Vectorstore shutdown failed", exc_info=True)
 
-                self.vectorstore = None
-            if getattr(self, "llm", None) is not None and hasattr(self.llm, "close"):
+            # Chromadb client shutdown (best-effort)
+            if getattr(self, "chroma_client", None) is not None:
                 try:
-                    self.llm.close()
+                    cc = cast(Any, self.chroma_client)
+                    if hasattr(cc, "close"):
+                        try:
+                            cc.close()
+                        except Exception:
+                            logger.debug("chroma_client.close() failed", exc_info=True)
                 except Exception:
-                    logger.debug("LLM close failed", exc_info=True)
-            logger.info("RAG cleanup finished")
+                    logger.debug("Chroma client cleanup failed", exc_info=True)
+
+            # Release heavy resources and reset state
+            try:
+                self.vectorstore = None
+            except Exception:
+                logger.debug("Failed to clear vectorstore reference", exc_info=True)
+
+            try:
+                if getattr(self, "llm", None) is not None:
+                    if hasattr(self.llm, "close"):
+                        try:
+                            self.llm.close()
+                        except Exception:
+                            logger.debug("llm.close() failed", exc_info=True)
+                    self.llm = None
+            except Exception:
+                logger.debug("Failed to cleanup local LLM", exc_info=True)
+
+            try:
+                self.current_video_id = None
+            except Exception:
+                pass
+
         except Exception:
-            logger.debug("Cleanup encountered an error", exc_info=True)
-            return
+            logger.debug("RAG cleanup encountered an error", exc_info=True)
+
+        logger.info("RAG cleanup complete")
+
+    def _select_main_sections(
+        self, sections: list[dict[str, Any]], limit: int
+    ) -> list[dict[str, Any]]:
+        """Choose up to `limit` main sections from detected boundaries.
+
+        Simple heuristic: if there are fewer than limit, return all. Otherwise
+        evenly sample across the detected sections to produce `limit` entries.
+        """
+        if not sections:
+            return []
+        if len(sections) <= limit:
+            return sections
+        # Evenly pick indices
+        step = max(1, len(sections) // limit)
+        picked = [sections[i] for i in range(0, len(sections), step)][:limit]
+        return picked
 
     def _find_subtopics_in_chunk(
-        self,
-        transcript_chunk: list[dict[str, Any]],
-        max_subsections: int,
+        self, chunk_segments: list[dict[str, Any]], count: int
     ) -> list[dict[str, Any]]:
-        """Use the local LLM to identify subtopics within a transcript slice."""
-        if not transcript_chunk or max_subsections <= 0:
+        """Extract simple subtopics from a list of transcript segments.
+
+        This is a lightweight fallback that picks `count` candidate starts by
+        sampling the chunk and generating heuristic titles.
+        """
+        if not chunk_segments:
             return []
-
-        chunk_text = self._create_transcript_text(transcript_chunk)
-        if len(chunk_text) < 120:
-            return []
-
-        prompt = (
-            "You are a video editor. Analyze the following transcript section and extract up to "
-            f"{max_subsections} distinct subtopics. Use the timestamps from the [xx.xs] markers "
-            "for each subtopic's start value. Respond strictly as JSON with schema: "
-            '{"subtopics": [{"start": <seconds>, "title": "..."}]}.'
-            "\n\nTranscript Section:\n"
-            f"{chunk_text}\n\nJSON:"
-        )
-
-        prev_max_tokens = getattr(self.llm, "max_tokens", None)
-        try:
-            if prev_max_tokens and prev_max_tokens < 400:
-                self.llm.max_tokens = 400
-            raw_response = str(self.llm.invoke(prompt))  # type: ignore[attr-defined]
-        except Exception as exc:
-            logger.warning("Subtopic extraction failed: %s", exc)
-            return []
-        finally:
-            if prev_max_tokens is not None:
-                self.llm.max_tokens = prev_max_tokens
-
-        match = re.search(r"\{.*\}", raw_response, re.DOTALL)
-        json_payload = match.group(0) if match else raw_response.strip()
-        try:
-            payload = json.loads(json_payload)
-        except json.JSONDecodeError:
-            logger.warning("Subtopic JSON parse failed; raw response: %s", raw_response[:200])
-            return []
-
-        subtopics = payload.get("subtopics", []) if isinstance(payload, dict) else []
+        n = len(chunk_segments)
+        if n <= count:
+            candidates = chunk_segments
+        else:
+            step = max(1, n // count)
+            candidates = [chunk_segments[i] for i in range(0, n, step)][:count]
         results: list[dict[str, Any]] = []
-        for topic in subtopics:
-            if not isinstance(topic, dict):
-                continue
-            try:
-                start_val_raw = topic.get("start")
-                start_val = float(start_val_raw or 0.0)
-            except (TypeError, ValueError):
-                continue
-            title_val = self._polish_title(str(topic.get("title", "")).strip())
-            if not title_val:
-                continue
-            results.append({"title": title_val, "start": start_val, "level": 1})
-            if len(results) >= max_subsections:
-                break
+        for seg in candidates:
+            t = str(seg.get("text", ""))
+            title = self._clean_title_tokens(t, self.detected_language)
+            results.append({"start": float(seg.get("start", 0.0)), "title": title})
         return results
 
     def _fallback_time_subsections(
-        self,
-        transcript: list[dict[str, Any]],
-        window_start: float,
-        window_end: float,
-        count: int,
+        self, transcript: list[dict[str, Any]], window_start: float, window_end: float, count: int
     ) -> list[dict[str, Any]]:
-        """Fallback heuristic for subsection creation using evenly spaced timestamps."""
-        if count <= 0 or window_end <= window_start:
+        """Fallback that picks subsections evenly in time between window_start and window_end."""
+        if window_end <= window_start:
             return []
-
-        subsections: list[dict[str, Any]] = []
-        for idx in range(count):
-            frac = (idx + 1) / (count + 1)
-            sub_ts = window_start + frac * (window_end - window_start)
-            nearest = (
-                min(transcript, key=lambda seg: abs(seg.get("start", 0.0) - sub_ts))
-                if transcript
-                else None
-            )
-            title = self._clean_title_tokens(
-                nearest.get("text", "") if nearest else "Section", self.detected_language
-            )
-            if len(title.split()) < 2:
-                title = self._clean_title_tokens("Section", self.detected_language)
-            subsections.append({"title": title or "Section", "start": round(sub_ts, 1), "level": 1})
-        return subsections
+        duration = window_end - window_start
+        step = duration / (count + 1)
+        starts = [window_start + step * (i + 1) for i in range(count)]
+        results: list[dict[str, Any]] = []
+        for s in starts:
+            # pick nearest segment
+            nearest = min(transcript, key=lambda sg: abs(sg.get("start", 0.0) - s))
+            title = self._clean_title_tokens(str(nearest.get("text", "")), self.detected_language)
+            results.append({"start": float(nearest.get("start", 0.0)), "title": title})
+        return results

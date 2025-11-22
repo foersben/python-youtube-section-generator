@@ -48,9 +48,12 @@ site/
 /models/
 !src/models/
 
-# Local DBs, caches and translation artifacts (root-only)
-/.chromadb/          # Chroma persistent DB and binary index files (kept local)
-/chroma.sqlite3      # optional single-file DB
+# Local DBs, caches and translation artifacts (project-root .chromadb only)
+/.chromadb/
+/.chromadb/**
+# Chroma single-file DBs that may appear at root or inside .chromadb
+/chroma.sqlite3
+/.chromadb/*/chroma.sqlite3
 /.rag_cache/
 /.translation_cache/
 

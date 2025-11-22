@@ -79,7 +79,7 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from src.core.testing.local_llm_shim import LocalLLMClient
+    from tests.local_llm_shim import LocalLLMClient
 
     print("  ✅ LocalLLMClient (test shim) imported successfully")
 except ImportError as e:

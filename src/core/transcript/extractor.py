@@ -258,59 +258,18 @@ def extract_transcript(
                         deepl = DeepLAdapter(deepl_key)
                         # Translate in batch to reduce API calls and avoid quick quota exhaustion
                         original_segments = fetched or original_transcript.fetch()
-                        texts = [
-                            str(
-                                seg.get("text")
-                                if isinstance(seg, dict)
-                                else getattr(seg, "text", "")
-                            )
-                            for seg in original_segments
-                        ]
-
-                        # Check cache first
-                        cache_path = _cache_path_for(video_id, "en")
-                        translated_texts = None
+                        deepl_texts: list[str] = []
+                        for seg in original_segments:
+                            if isinstance(seg, dict):
+                                txt = seg.get("text")
+                            else:
+                                txt = getattr(seg, "text", "")
+                            deepl_texts.append(str(txt) if txt is not None else "")
                         try:
-                            if cache_path.exists():
-                                cached = file_io.read_json_file(str(cache_path))
-                                # cached format: { 'ts': epoch, 'segments': [ {text, start, duration}, ... ] }
-                                if isinstance(cached, dict) and "segments" in cached:
-                                    segments = cached.get("segments", [])
-                                    if isinstance(segments, list) and len(segments) == len(texts):
-                                        # check TTL
-                                        ttl = int(
-                                            os.getenv("DEEPL_CACHE_TTL_SECONDS", "604800")
-                                        )  # default 7 days
-                                        ts = int(cached.get("ts", 0))
-                                        if ts and (int(time.time()) - ts) <= ttl:
-                                            logger.info(
-                                                "Using cached translated transcript from %s",
-                                                cache_path,
-                                            )
-                                            translated_texts = [
-                                                (
-                                                    str(item.get("text", ""))
-                                                    if isinstance(item, dict)
-                                                    else str(item)
-                                                )
-                                                for item in segments
-                                            ]
-                                        else:
-                                            logger.debug(
-                                                "Translation cache expired or invalid for %s",
-                                                cache_path,
-                                            )
-                        except Exception:
-                            logger.debug("Failed to read translation cache %s", cache_path)
-
-                        if translated_texts is None:
-                            try:
-                                translated_texts = deepl.translate_batch(texts, "EN")
-                            except TranslationQuotaExceeded as tqe:
-                                logger.error(
-                                    "DeepL quota exceeded during batched translate: %s", tqe
-                                )
-                                translated_texts = None
+                            translated_texts = deepl.translate_batch(deepl_texts, "EN")
+                        except TranslationQuotaExceeded as tqe:
+                            logger.error("DeepL quota exceeded during batched translate: %s", tqe)
+                            translated_texts = None
 
                         if translated_texts:
                             translated_segments = []
@@ -355,12 +314,16 @@ def extract_transcript(
                             fetched_lang = "en"
                             # persist to cache
                             try:
+                                cp_path = _cache_path_for(video_id, "EN")
                                 file_io.write_to_file(
                                     {"ts": int(time.time()), "segments": translated_segments},
-                                    str(cache_path),
+                                    str(cp_path),
                                 )
                             except Exception:
-                                logger.debug("Failed to write translation cache %s", cache_path)
+                                # Don't attempt to mix Path and str types; simply log failure.
+                                logger.debug(
+                                    "Failed to write translation cache for video %s", video_id
+                                )
                         else:
                             logger.warning("DeepL batch translation was not available or failed.")
                     except Exception as exc:
@@ -376,17 +339,45 @@ def extract_transcript(
                         )
                         translator = LlamaCppTranslator()
                         original_segments = fetched or original_transcript.fetch()
-                        translated_segments = []
+                        # Extract texts and perform batch translation to reduce overhead
+                        llama_texts: list[str] = []
                         for seg in original_segments:
-                            text = (
-                                seg.get("text")
-                                if isinstance(seg, dict)
-                                else getattr(seg, "text", "")
+                            if isinstance(seg, dict):
+                                txt = seg.get("text")
+                            else:
+                                txt = getattr(seg, "text", "")
+                            llama_texts.append(str(txt) if txt is not None else "")
+                        try:
+                            translated_texts = translator.translate_batch(
+                                [str(t) for t in llama_texts], "EN"
                             )
-                            try:
-                                new_text = translator.translate(str(text), "EN")
-                            except Exception:
-                                new_text = str(text)
+                        except Exception as exc:
+                            logger.warning(
+                                "Llama batch translation failed; falling back to per-segment: %s",
+                                exc,
+                            )
+                            translated_texts = []
+                            for t in llama_texts:
+                                try:
+                                    translated_texts.append(translator.translate(str(t), "EN"))
+                                except Exception:
+                                    translated_texts.append(str(t))
+
+                        # Build translated segments preserving start/duration
+                        translated_segments = []
+                        for idx, seg in enumerate(original_segments):
+                            # Coerce new_text to str explicitly for type-safety
+                            candidate = (
+                                translated_texts[idx]
+                                if idx < len(translated_texts)
+                                else (
+                                    seg.get("text")
+                                    if isinstance(seg, dict)
+                                    else getattr(seg, "text", "")
+                                )
+                            )
+                            new_text = str(candidate) if candidate is not None else ""
+
                             # Narrow types to satisfy mypy and avoid float(None)
                             s_val = (
                                 seg.get("start")

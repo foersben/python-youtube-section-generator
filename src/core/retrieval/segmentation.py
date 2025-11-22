@@ -8,13 +8,20 @@ boundaries based on adjacent-chunk semantic similarity.
 from __future__ import annotations
 
 import logging
+import os
+import time
 from math import floor
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 
+from src.core.embeddings.cache import (
+    build_embedding_cache_key,
+    load_cached_embeddings,
+    save_cached_embeddings,
+)
 from src.core.embeddings.factory import EmbeddingsFactory
 
 logger = logging.getLogger(__name__)
@@ -35,7 +42,7 @@ def chunk_transcript_text(
         List of chunk dicts with keys: 'start' (float) and 'text' (str).
     """
     text = ""
-    offsets: list[float] = []
+    offsets: list[tuple[int, float]] = []
     # Build a single long text with markers mapping char offset -> timestamp
     for seg in transcript:
         seg_text = str(seg.get("text", ""))
@@ -59,7 +66,8 @@ def chunk_transcript_text(
         chunk_text = text[pos:end].strip()
         # estimate start timestamp for the chunk using nearest offset
         chunk_start = 0.0
-        for off, ts in reversed(offsets):
+        for off_ts in reversed(offsets):
+            off, ts = off_ts
             if off <= pos:
                 chunk_start = ts
                 break
@@ -77,6 +85,8 @@ def select_coarse_sections(
     chunk_overlap: int = 200,
     embedding_model: str | None = None,
     device: str = "cpu",
+    video_id: str | None = None,
+    metrics_callback: Callable[[dict[str, float]], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Select coarse section boundaries from a transcript.
 
@@ -95,6 +105,9 @@ def select_coarse_sections(
         embedding_model: Optional identifier for the embeddings model; if
             None the factory default is used.
         device: Device for embeddings provider (default: 'cpu').
+        video_id: Optional video identifier used for disk cache keying.
+        metrics_callback: Optional callback that receives a dict of timing
+            metrics (e.g. batch_avg_sec, batch_p95_sec).
 
     Returns:
         List of section dicts: [{'start': float, 'text': str}, ...]
@@ -108,29 +121,98 @@ def select_coarse_sections(
 
     # If we have fewer chunks than requested sections, fallback to chunk starts
     if len(chunks) <= target_sections:
-        return [ {"start": c["start"], "text": c["text"]} for c in chunks ]
+        return [{"start": c["start"], "text": c["text"]} for c in chunks]
 
-    # Prepare texts
     texts = [c["text"] for c in chunks]
 
-    # Embeddings
-    provider = EmbeddingsFactory.create_provider(model_name=embedding_model or "sentence-transformers/all-MiniLM-L6-v2", device=device)
+    model_name = embedding_model or "sentence-transformers/all-MiniLM-L6-v2"
+    provider = EmbeddingsFactory.create_provider(model_name=model_name, device=device)
+
+    # Derive a cache key when we have a video_id; otherwise caching is disabled.
+    cache_dir = Path(os.getenv("SEGMENTATION_CACHE_DIR", ".cache/embeddings"))
+    cache_key = (
+        build_embedding_cache_key(
+            video_id=video_id or "unknown",
+            model_name=model_name,
+            device=device,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            extra_tag="segmentation-v1",
+        )
+        if video_id is not None
+        else None
+    )
+
+    cached_embeddings: list[list[float]] | None = None
+    if cache_key is not None:
+        cached_embeddings = load_cached_embeddings(cache_dir, cache_key)
+
+    embeddings: list[list[float]] = []
+    batch_timings: list[float] = []
+
     try:
-        embeddings = provider.embed_documents(texts)
-    except Exception as e:
+        if cached_embeddings is not None and len(cached_embeddings) == len(texts):
+            embeddings = cached_embeddings
+            logger.info(
+                "Using cached embeddings for segmentation (chunks=%d, model=%s)",
+                len(embeddings),
+                model_name,
+            )
+        else:
+            try:
+                batch_size = int(os.getenv("SEGMENTATION_EMBED_BATCH_SIZE", "32"))
+            except Exception:
+                batch_size = 32
+            batch_size = max(1, batch_size)
+
+            if batch_size <= 1 or len(texts) <= batch_size:
+                start_t = time.perf_counter()
+                embeddings = provider.embed_documents(texts)
+                batch_timings.append(time.perf_counter() - start_t)
+            else:
+                for i in range(0, len(texts), batch_size):
+                    batch_texts = texts[i : i + batch_size]
+                    start_t = time.perf_counter()
+                    batch_emb = provider.embed_documents(batch_texts)
+                    batch_timings.append(time.perf_counter() - start_t)
+                    embeddings.extend(batch_emb)
+
+            if cache_key is not None and embeddings:
+                save_cached_embeddings(cache_dir, cache_key, embeddings)
+
+    except Exception as e:  # pragma: no cover - defensive
         logger.exception("Failed to compute embeddings for segmentation: %s", e)
-        # As a robust fallback, evenly space sections across transcript
         total = len(transcript)
         step = max(1, floor(total / target_sections))
         result: list[dict[str, Any]] = []
-        for i in range(0, total, step)[:target_sections]:
+        # Build explicit list of candidate indices and take the first N
+        indices = list(range(0, total, step))[:target_sections]
+        for i in indices:
             seg = transcript[i]
             result.append({"start": float(seg.get("start", 0.0)), "text": seg.get("text", "")})
         return result
 
-    # Convert to numpy array
+    if batch_timings:
+        # Basic batch telemetry
+        times = np.asarray(batch_timings, dtype=float)
+        avg = float(times.mean())
+        p95 = float(np.percentile(times, 95))
+        logger.info(
+            "Segmentation embeddings computed in %d batch(es); avg=%.3fs, p95=%.3fs",
+            len(batch_timings),
+            avg,
+            p95,
+        )
+        if metrics_callback is not None:
+            metrics_callback(
+                {
+                    "batch_count": float(len(batch_timings)),
+                    "batch_avg_sec": avg,
+                    "batch_p95_sec": p95,
+                }
+            )
+
     vecs = np.asarray(embeddings, dtype=float)
-    # compute adjacent similarities
     sims: list[float] = []
     for i in range(len(vecs) - 1):
         a = vecs[i].reshape(1, -1)
@@ -138,12 +220,9 @@ def select_coarse_sections(
         sim = float(cosine_similarity(a, b)[0, 0])
         sims.append(sim)
 
-    # pick boundaries with lowest similarity (where topic shift is strongest)
     n_breaks = max(1, target_sections - 1)
-    # indices in range(len(chunks)-1)
     candidate_indices = sorted(range(len(sims)), key=lambda i: sims[i])
 
-    # ensure we pick well-spread indices: greedily select lowest-sim indices while keeping distance
     selected_breaks: list[int] = []
     min_distance = max(1, int(len(chunks) / (target_sections * 2)))
     for idx in candidate_indices:
@@ -155,7 +234,6 @@ def select_coarse_sections(
         if len(selected_breaks) >= n_breaks:
             break
 
-    # if not enough breaks selected due to spacing, fill from remaining candidates
     if len(selected_breaks) < n_breaks:
         for idx in candidate_indices:
             if idx not in selected_breaks:
@@ -165,7 +243,6 @@ def select_coarse_sections(
 
     selected_breaks = sorted(selected_breaks)
 
-    # Build sections by splitting chunks at the selected break points
     boundaries = [0]
     for b in selected_breaks:
         boundaries.append(b + 1)
@@ -175,20 +252,17 @@ def select_coarse_sections(
     for i in range(len(boundaries) - 1):
         start_idx = boundaries[i]
         end_idx = boundaries[i + 1]
-        # aggregate text and choose earliest start timestamp
         seg_text = "\n".join(c["text"] for c in chunks[start_idx:end_idx])
-        seg_start = float(chunks[start_idx]["start"]) if chunks[start_idx].get("start") is not None else 0.0
+        seg_start = (
+            float(chunks[start_idx]["start"]) if chunks[start_idx].get("start") is not None else 0.0
+        )
         sections.append({"start": seg_start, "text": seg_text})
 
-    # If we produced more sections than desired (rare), merge/slice to target_sections
     if len(sections) > target_sections:
-        # merge the last ones
         while len(sections) > target_sections:
-            # merge last two
             a = sections.pop()
             b = sections.pop()
             merged = {"start": b["start"], "text": b["text"] + "\n" + a["text"]}
             sections.append(merged)
 
     return sections
-
