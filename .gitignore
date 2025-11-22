@@ -25,17 +25,17 @@ dist/
 pip-wheel-metadata/
 site/
 
-# GitHub status files (optional operational outputs)
+# GitHub operational/status files (generated)
 /.github/status/
 
 # IDE / editor
 .idea/
 .vscode/
 
-# Local configuration & secrets
+# Local configuration & secrets (do NOT commit real keys)
 .env
 .secrets
-# keep .secrets.baseline tracked so the team shares the baseline
+# keep .secrets.baseline tracked if present
 
 # Generated data & binary assets (root-only)
 /sections.json
@@ -44,14 +44,19 @@ site/
 /webapp-linux
 /bin/
 
-# Local models (root-only) - keep src/models/ tracked
+# Local models: ignore large local model files in repo root, but keep source package models
 /models/
 !src/models/
 
-# Local DBs, caches and translation artifacts
-/.chromadb/
-.cache/
-# (specific translation cache file kept ignored via overall .cache/)
+# Local DBs, caches and translation artifacts (root-only)
+/.chromadb/          # Chroma persistent DB and binary index files (kept local)
+/chroma.sqlite3      # optional single-file DB
+/.rag_cache/
+/.translation_cache/
+
+# If you intentionally place .chromadb deeper in the tree, consider adding
+# a recursive ignore, but prefer a single known root location to avoid masking bugs:
+# **/.chromadb/
 
 # Local tooling helpers
 setup-act.sh
