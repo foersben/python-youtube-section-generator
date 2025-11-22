@@ -40,7 +40,7 @@ stopwordsiso = "^0.6.0"
 numpy = "^2.3.5"
 scikit-learn = "^1.7.2"
 poetry-core = ">=2.0.0"
-deep-translator = "^1.11.4"
+deep-translator = "^2.11.4"
 [tool.poetry.scripts]
 pythonyoutubetranscript = "src.main:main"
 setup_interactive = "scripts.cli.setup_interactive:main"
