@@ -11,7 +11,7 @@ packages = [{ include = "src" }, { include = "scripts" }]
 [tool.poetry.dependencies]
 python = ">=3.11,<3.14"
 youtube-transcript-api = "^1.1.1"
-google-genai = "^1.25.0"
+google-genai = "^1.52.0"
 flask = "^3.1.0"
 python-dotenv = "^1.0.1"
 langdetect = "^1.0.9"
