@@ -90,7 +90,7 @@ black = "^24.10.0"
 mkdocs = "^1.6.1"
 mkdocs-material = "^9.6.11"
 mkdocs-include-markdown-plugin = "^7.1.5"
-mkdocstrings = {extras = ["python"], version = "^0.29.1"}
+mkdocstrings = {extras = ["python"], version = "^0.30.1"}
 mkdocs-bibtex = "^4.2.5"
 python-markdown-math = "^0.9"
 ruff = "^0.8.0"
