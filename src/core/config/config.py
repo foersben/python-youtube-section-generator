@@ -36,6 +36,12 @@ class AppConfig:
         if self._initialized:
             return
 
+        self._load_from_env()
+        self._initialized = True
+        logger.info("Configuration initialized")
+
+    def _load_from_env(self) -> None:
+        """Internal method to load values from environment variables."""
         # Project paths
         self.project_root = self._get_project_root()
         self.models_dir = self.project_root / "models"
@@ -54,13 +60,12 @@ class AppConfig:
         self.llm_context_size = int(os.getenv("LLM_CONTEXT_SIZE", "4096"))
 
         # RAG Configuration
-        # RAG strategy: 'always', 'auto', or 'never'. Default to 'auto' for balanced behavior.
         self.use_rag = os.getenv("USE_RAG", "auto").lower()
         self.rag_hierarchical = os.getenv("RAG_HIERARCHICAL", "true").lower() == "true"
         self.rag_chunk_size = int(os.getenv("RAG_CHUNK_SIZE", "1000"))
         self.rag_chunk_overlap = int(os.getenv("RAG_CHUNK_OVERLAP", "200"))
         self.rag_retrieval_k = int(os.getenv("RAG_RETRIEVAL_K", "5"))
-        self.rag_min_duration = float(os.getenv("RAG_MIN_DURATION", "1800"))  # 30 min
+        self.rag_min_duration = float(os.getenv("RAG_MIN_DURATION", "1800"))
 
         # Embeddings Configuration
         self.embeddings_model = os.getenv(
@@ -76,77 +81,47 @@ class AppConfig:
         self.pipeline_strategy = os.getenv("PIPELINE_STRATEGY", "legacy").lower()
         self.pipeline_section_overshoot = float(os.getenv("PIPELINE_SECTION_OVERSHOOT", "0.1"))
 
-        self._initialized = True
-        logger.info("Configuration initialized")
+    def reload(self) -> None:
+        """Force reload configuration from environment variables."""
+        logger.info("Reloading configuration from environment...")
+        self._load_from_env()
 
     def _get_project_root(self) -> Path:
-        """Get project root directory.
-
-        Assumes config is in src/core/config/
-        """
+        """Get project root directory. Assumes config is in src/core/config/"""
         return Path(__file__).parent.parent.parent.parent
 
     def _resolve_model_path(self, path_str: str) -> Path:
-        """Resolve model path to absolute path.
-
-        Args:
-            path_str: Relative or absolute path string.
-
-        Returns:
-            Absolute Path object.
-        """
+        """Resolve model path to absolute path."""
         path = Path(path_str)
         if not path.is_absolute():
             path = self.project_root / path
         return path
 
     def should_use_rag(self, video_duration: float) -> bool:
-        """Determine if RAG should be used based on video duration.
-
-        Args:
-            video_duration: Video duration in seconds.
-
-        Returns:
-            True if RAG should be used, False otherwise.
-        """
+        """Determine if RAG should be used based on video duration."""
         if self.use_rag == "always":
             return True
         if self.use_rag == "never":
             return False
-        # auto: fall back to duration-based heuristic
         return video_duration > self.rag_min_duration
 
     def validate(self) -> list[str]:
-        """Validate configuration and return list of issues.
-
-        Returns:
-            List of validation error messages (empty if valid).
-        """
+        """Validate configuration and return list of issues."""
         issues = []
-
         if self.use_local_llm:
             if not self.local_model_path.exists():
                 issues.append(f"Local model not found: {self.local_model_path}")
-
         if not self.use_local_llm and not self.google_api_key:
             issues.append("GOOGLE_API_KEY not set and local LLM disabled")
-
         return issues
 
     def to_dict(self) -> dict[str, Any]:
-        """Export configuration as dictionary.
-
-        Returns:
-            Dictionary with key configuration values.
-        """
+        """Export configuration as dictionary."""
         return {
             "use_local_llm": self.use_local_llm,
             "use_rag": self.use_rag,
-            "rag_hierarchical": self.rag_hierarchical,
-            "llm_temperature": self.llm_temperature,
-            "embeddings_model": self.embeddings_model,
             "pipeline_strategy": self.pipeline_strategy,
-            "pipeline_section_overshoot": self.pipeline_section_overshoot,
+            # ... add others if needed for debugging
         }
 
 

@@ -21,47 +21,26 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class TranscriptObject(Protocol):
-    """Protocol describing a transcript-like object returned by some fetch methods.
-
-    Implementations (e.g., items returned by transcript_list.fetch()) typically
-    expose attributes `text`, `start`, and `duration`. We only model the
-    attributes this module reads.
-    """
-
     text: Any
     start: Any
     duration: Any
 
 
 def _convert_transcript_to_dict(
-    transcript_data: Sequence[dict[str, Any] | TranscriptObject]
+        transcript_data: Sequence[dict[str, Any] | TranscriptObject]
 ) -> list[dict[str, Any]]:
-    """Convert youtube-transcript-api result to serializable list of dicts.
-
-    Args:
-        transcript_data: Raw transcript data from youtube-transcript-api. Elements
-            may be mapping-like dicts or objects exposing attributes `text`,
-            `start`, and `duration`.
-
-    Returns:
-        List of dictionaries each containing 'text', 'start', and 'duration'.
-    """
-
+    """Convert youtube-transcript-api result to serializable list of dicts."""
     segments: list[dict[str, Any]] = []
     for segment in transcript_data:
-        # Handle mapping-like segments (preferred) first
         if isinstance(segment, dict):
             text = segment.get("text")
             start = segment.get("start", 0.0)
             duration = segment.get("duration", 0.0)
         else:
-            # Treat as an object implementing TranscriptObject protocol
-            # Use getattr with defaults to be defensive against odd shapes
             text = getattr(segment, "text", None)
             start = getattr(segment, "start", 0.0)
             duration = getattr(segment, "duration", 0.0)
 
-        # Safe coercions to avoid float(None)
         text_str = str(text) if text is not None else ""
         try:
             start_f = float(start or 0.0)
@@ -77,395 +56,93 @@ def _convert_transcript_to_dict(
 
 
 def extract_transcript(
-    video_id: str,
-    output_file: str | None = None,
-    translate_to: str | None = None,
-    refine_with_llm: bool | None = None,
+        video_id: str,
+        output_file: str | None = None,
+        translate_to: str | None = None,
+        refine_with_llm: bool | None = None,
 ) -> list[dict[str, Any]]:
     """Extract a YouTube transcript for processing and track original language.
 
-    The pipeline always prefers an English transcript for processing when
-    available (or falls back to the original-language transcript if English
-    cannot be fetched or translated). The original language of the video is
-    recorded in the first transcript segment under ``original_language_code``
-    so that section titles can later be translated back to the original
-    language at the end of the processing pipeline.
-
-    Args:
-        video_id: YouTube video ID (11-character ID or URL accepted by the
-            library).
-        output_file: Optional path to save the transcript as JSON.
-        translate_to: Deprecated for transcript content.
-        refine_with_llm: Whether to use LLM for intelligent transcript
-            refinement. If None, uses REFINE_TRANSCRIPTS env var (default:
-            True).
-
-    Returns:
-        List of transcript segments as dictionaries.
-
-    Raises:
-        Exception: If transcript extraction fails.
+    Strategy:
+    1. Detect TRUE original language (from metadata).
+    2. Fetch ENGLISH transcript for processing (native or translated).
+    3. Attach original language metadata for final title translation.
     """
 
     try:
         ytt_api = YouTubeTranscriptApi()
 
-        # Retrieve available transcripts to inspect languages
-        transcript_list = ytt_api.list(video_id)
-        transcripts = list(transcript_list)
-        if not transcripts:
-            raise RuntimeError("No transcripts available for video")
-
-        # Prefer manually created transcript when available (original)
-        original_transcript = next((s for s in transcripts if not s.is_generated), transcripts[0])
-        original_lang_code = getattr(original_transcript, "language_code", "") or ""
-
-        # Helper: attempt to fetch a transcript object in desired languages, using
-        # YouTube's native features (including translate()) before falling back
-        # to external translation services.
-        def _fetch_preferred_transcript(
-            desired_langs: list[str],
-        ) -> tuple[FetchedTranscript, str | None | Any] | tuple[FetchedTranscript, str | Any]:
-            """Return (fetched_segments, language_code) using YT translate when possible.
-
-            Strategy:
-            1. Try YouTubeTranscriptApi.fetch with languages preference.
-            2. Try transcript_list.find_transcript(desired_langs) and fetch.
-            3. If not found, and original is translatable, call original_transcript.translate(target)
-               (YouTube's server-side translate feature) and fetch.
-            4. If still not available, fall back to returning the original fetched segments.
-
-            Args:
-                desired_langs: List of desired language codes in order of preference.
-
-            Returns:
-                Tuple of (fetched_segments, language_code).
-
-            Raises:
-                Exception: If no transcript could be fetched.
-            """
-
-            # 1) Try direct fetch with preferred languages (may return native or translated)
-            try:
-                fetched_try = ytt_api.fetch(video_id, languages=desired_langs)
-                if fetched_try:
-                    logger.info("Using YouTubeTranscriptApi.fetch with languages=%s", desired_langs)
-                    return fetched_try, (getattr(fetched_try, "language_code", None) or "")
-            except Exception:
-                pass
-
-            # 2) Try transcript_list.find_transcript which returns a Transcript object
-            try:
-                t_obj = transcript_list.find_transcript(desired_langs)
-                if t_obj:
-                    try:
-                        fetched = t_obj.fetch()
-                        logger.info(
-                            "Using transcript_list.find_transcript result for languages=%s",
-                            desired_langs,
-                        )
-                        return fetched, (getattr(t_obj, "language_code", None) or "")
-                    except Exception:
-                        logger.debug(
-                            "Found transcript object but fetch() failed for %s", desired_langs
-                        )
-            except Exception:
-                pass
-
-            # 3) Try translating the original transcript via YouTube's translate() if possible
-            try:
-                if getattr(original_transcript, "is_translatable", False):
-                    # Attempt translation to the first desired language
-                    target = desired_langs[0]
-                    logger.info(
-                        "Attempting server-side translate() of original transcript -> %s", target
-                    )
-                    try:
-                        translated = original_transcript.translate(target)
-                        fetched = translated.fetch()
-                        logger.info("Used server-side transcript.translate(%s)", target)
-                        return fetched, (getattr(translated, "language_code", None) or target)
-                    except Exception as exc:
-                        logger.warning("Server-side translate() failed: %s", exc)
-            except Exception:
-                pass
-
-            # 4) Last-resort: return original transcript fetched
-            try:
-                orig_fetched = original_transcript.fetch()
-                logger.info(
-                    "Falling back to original transcript language '%s'",
-                    original_lang_code or "unknown",
-                )
-                return orig_fetched, original_lang_code
-            except Exception:
-                raise
-
-        # Use desired processing language(s). If translate_to provided, accept
-        # either a single language string or a list-like comma-separated string.
-        if translate_to:
-            if isinstance(translate_to, (list, tuple)):
-                desired = list(translate_to)
-            else:
-                # allow comma-separated strings like 'de,en'
-                desired = [s.strip() for s in str(translate_to).split(",") if s.strip()]
-        else:
-            # default: prefer English for processing
-            desired = ["en"]
-        fetched, fetched_lang = _fetch_preferred_transcript(desired)
-
-        # If no English transcript could be produced by YouTube server-side translate,
-        # use DeepL (if available) as a fallback by translating each segment.
-        if not fetched or (fetched_lang and fetched_lang.lower().startswith("en") is False):
-            # fetched may contain segments but not in English. If it's already English, keep.
-            lang_is_en = False
-            try:
-                if fetched and (
-                    (
-                        getattr(fetched, "language", "")
-                        or getattr(fetched, "language_code", "")
-                        or ""
-                    )
-                    .lower()
-                    .startswith("en")
-                ):
-                    lang_is_en = True
-            except Exception:
-                lang_is_en = False
-
-            if not lang_is_en:
-                # Try DeepL if API key present; else try local Llama translator
-                deepl_key = os.getenv("DEEPL_API_KEY")
-                translated_segments = None
-                # Setup cache directory for translations
-                cache_dir = Path(_config.project_root) / ".cache" / "translations"
-                cache_dir.mkdir(parents=True, exist_ok=True)
-
-                def _cache_path_for(video_id: str, target: str) -> Path:
-                    safe_vid = str(video_id).replace("/", "_")
-                    return cache_dir / f"{safe_vid}_{target.lower()}.json"
-
-                if deepl_key:
-                    try:
-                        from src.core.services.translation import (
-                            DeepLAdapter,
-                            TranslationQuotaExceeded,
-                        )
-
-                        logger.info(
-                            "Attempting DeepL fallback translation of transcript to English (batched)"
-                        )
-                        deepl = DeepLAdapter(deepl_key)
-                        # Translate in batch to reduce API calls and avoid quick quota exhaustion
-                        original_segments = fetched or original_transcript.fetch()
-                        deepl_texts: list[str] = []
-                        for seg in original_segments:
-                            if isinstance(seg, dict):
-                                txt = seg.get("text")
-                            else:
-                                txt = getattr(seg, "text", "")
-                            deepl_texts.append(str(txt) if txt is not None else "")
-                        try:
-                            translated_texts = deepl.translate_batch(deepl_texts, "EN")
-                        except TranslationQuotaExceeded as tqe:
-                            logger.error("DeepL quota exceeded during batched translate: %s", tqe)
-                            translated_texts = None
-
-                        if translated_texts:
-                            translated_segments = []
-                            for seg, new_text in zip(
-                                original_segments, translated_texts, strict=False
-                            ):
-                                # Coerce start/duration defensively and narrow types for mypy
-                                start_val = (
-                                    seg.get("start")
-                                    if isinstance(seg, dict)
-                                    else getattr(seg, "start", 0.0)
-                                )
-                                if isinstance(start_val, (int, float, str)):
-                                    try:
-                                        start = float(start_val)
-                                    except Exception:
-                                        start = 0.0
-                                else:
-                                    start = 0.0
-
-                                duration_val = (
-                                    seg.get("duration")
-                                    if isinstance(seg, dict)
-                                    else getattr(seg, "duration", 0.0)
-                                )
-                                if isinstance(duration_val, (int, float, str)):
-                                    try:
-                                        duration = float(duration_val)
-                                    except Exception:
-                                        duration = 0.0
-                                else:
-                                    duration = 0.0
-
-                                translated_segments.append(
-                                    {
-                                        "text": str(new_text),
-                                        "start": start,
-                                        "duration": duration,
-                                    }
-                                )
-                            fetched = translated_segments
-                            fetched_lang = "en"
-                            # persist to cache
-                            try:
-                                cp_path = _cache_path_for(video_id, "EN")
-                                file_io.write_to_file(
-                                    {"ts": int(time.time()), "segments": translated_segments},
-                                    str(cp_path),
-                                )
-                            except Exception:
-                                # Don't attempt to mix Path and str types; simply log failure.
-                                logger.debug(
-                                    "Failed to write translation cache for video %s", video_id
-                                )
-                        else:
-                            logger.warning("DeepL batch translation was not available or failed.")
-                    except Exception as exc:
-                        logger.warning("DeepL fallback failed: %s", exc)
-
-                if not fetched or (fetched_lang and not fetched_lang.lower().startswith("en")):
-                    # Last fallback: try local LlamaCpp-based translator if configured
-                    try:
-                        from src.core.services.translation import LlamaCppTranslator
-
-                        logger.info(
-                            "Attempting local LlamaCpp fallback translation of transcript to English"
-                        )
-                        translator = LlamaCppTranslator()
-                        original_segments = fetched or original_transcript.fetch()
-                        # Extract texts and perform batch translation to reduce overhead
-                        llama_texts: list[str] = []
-                        for seg in original_segments:
-                            if isinstance(seg, dict):
-                                txt = seg.get("text")
-                            else:
-                                txt = getattr(seg, "text", "")
-                            llama_texts.append(str(txt) if txt is not None else "")
-                        try:
-                            translated_texts = translator.translate_batch(
-                                [str(t) for t in llama_texts], "EN"
-                            )
-                        except Exception as exc:
-                            logger.warning(
-                                "Llama batch translation failed; falling back to per-segment: %s",
-                                exc,
-                            )
-                            translated_texts = []
-                            for t in llama_texts:
-                                try:
-                                    translated_texts.append(translator.translate(str(t), "EN"))
-                                except Exception:
-                                    translated_texts.append(str(t))
-
-                        # Build translated segments preserving start/duration
-                        translated_segments = []
-                        for idx, seg in enumerate(original_segments):
-                            # Coerce new_text to str explicitly for type-safety
-                            candidate = (
-                                translated_texts[idx]
-                                if idx < len(translated_texts)
-                                else (
-                                    seg.get("text")
-                                    if isinstance(seg, dict)
-                                    else getattr(seg, "text", "")
-                                )
-                            )
-                            new_text = str(candidate) if candidate is not None else ""
-
-                            # Narrow types to satisfy mypy and avoid float(None)
-                            s_val = (
-                                seg.get("start")
-                                if isinstance(seg, dict)
-                                else getattr(seg, "start", 0.0)
-                            )
-                            if isinstance(s_val, (int, float, str)):
-                                try:
-                                    start = float(s_val)
-                                except Exception:
-                                    start = 0.0
-                            else:
-                                start = 0.0
-
-                            d_val = (
-                                seg.get("duration")
-                                if isinstance(seg, dict)
-                                else getattr(seg, "duration", 0.0)
-                            )
-                            if isinstance(d_val, (int, float, str)):
-                                try:
-                                    duration = float(d_val)
-                                except Exception:
-                                    duration = 0.0
-                            else:
-                                duration = 0.0
-
-                            translated_segments.append(
-                                {
-                                    "text": str(new_text),
-                                    "start": start,
-                                    "duration": duration,
-                                }
-                            )
-                        fetched = translated_segments
-                        fetched_lang = "en"
-                    except Exception as exc:
-                        logger.warning("Local Llama translation fallback failed: %s", exc)
-
-        # Convert fetched transcript into serializable segments
-        serializable_data = _convert_transcript_to_dict(fetched)
-
-        logger.info("Transcript Details (processing):")
+        # 1. List all available transcripts to find the ORIGINAL language
         try:
-            logger.info(
-                f"- Original Language: {original_transcript.language} ({original_lang_code})"
-            )
-            # fetched may be a FetchedTranscript or a Transcript-like object
-            proc_lang = (
-                getattr(fetched, "language", None)
-                or getattr(fetched, "language_code", None)
-                or "unknown"
-            )
-            proc_code = (
-                getattr(fetched, "language_code", None) or getattr(fetched, "language", None) or ""
-            )
-            logger.info(f"- Processing Language: {proc_lang} ({proc_code})")
-            # For fetched objects, check is_generated flag when available
-            is_gen = getattr(fetched, "is_generated", None)
-            if is_gen is not None:
-                logger.info(f"- Generated: {'Yes' if is_gen else 'No'}")
+            transcript_list = ytt_api.list(video_id)
+        except Exception as e:
+            # If listing fails (e.g. cookies required), we might fallback, but usually fatal
+            raise RuntimeError(f"Could not list transcripts for {video_id}: {e}") from e
+
+        # Find the most "original" transcript
+        # Priority: Manually created (not generated) > First available
+        manually_created = [t for t in transcript_list if not t.is_generated]
+        if manually_created:
+            original_transcript_obj = manually_created[0]
+        else:
+            original_transcript_obj = list(transcript_list)[0]
+
+        true_original_lang = original_transcript_obj.language_code
+        logger.info(f"Detected Original Video Language: {true_original_lang}")
+
+        # 2. Fetch English for Processing
+        # We always want 'en' for the LLM to work best.
+        fetched_transcript = None
+
+        # Try fetching 'en' directly (this handles native English OR auto-translate if available)
+        try:
+            fetched_transcript = transcript_list.find_transcript(['en'])
         except Exception:
-            pass
+            # If 'en' not directly available, try translating the original
+            if original_transcript_obj.is_translatable:
+                try:
+                    fetched_transcript = original_transcript_obj.translate('en')
+                except Exception as e:
+                    logger.warning(f"YouTube translation to 'en' failed: {e}")
 
-        # Attach original language metadata to the first segment for downstream
-        # use so that later stages (e.g., section title translation) can
-        # translate English titles back to the original language if desired.
+        # 3. Fallback: If we simply can't get English from YouTube, take the original
+        # and let the external DeepL/Local fallback handle it later.
+        if not fetched_transcript:
+            logger.warning("Could not fetch English transcript from YouTube. Using original.")
+            fetched_transcript = original_transcript_obj
+
+        fetched_data = fetched_transcript.fetch()
+
+        # --- External Translation Fallback (DeepL / Local) ---
+        # If the fetched transcript is NOT English (e.g. YouTube translate failed),
+        # we must translate it now so the pipeline receives English.
+        current_lang_code = fetched_transcript.language_code
+        if not current_lang_code.startswith('en'):
+            logger.info(f"Transcript is in '{current_lang_code}', applying external translation to EN...")
+            fetched_data = _apply_external_translation(fetched_data, target_lang="en")
+
+        # Convert to dicts
+        serializable_data = _convert_transcript_to_dict(fetched_data)
+
+        # 4. Attach Metadata
+        # This is crucial: We store the TRUE original language we found in step 1.
         if serializable_data:
-            serializable_data[0]["original_language_code"] = original_lang_code or getattr(
-                fetched, "language_code", ""
-            )
+            serializable_data[0]["original_language_code"] = true_original_lang
+            # Also store the language we are actually processing in
+            serializable_data[0]["processing_language_code"] = "en"
 
-        # Apply LLM-based refinement if enabled
+        # Optional LLM Refinement
         if refine_with_llm is None:
             refine_with_llm = os.getenv("REFINE_TRANSCRIPTS", "true").lower() == "true"
 
         if refine_with_llm:
             try:
-                from src.core.services.transcript_refinement import (
-                    TranscriptRefinementService,
-                )
-
+                from src.core.services.transcript_refinement import TranscriptRefinementService
                 logger.info("Refining transcript with LLM...")
                 refinement_service = TranscriptRefinementService()
                 serializable_data = refinement_service.refine_transcript_batch(serializable_data)
-                logger.info("Transcript refinement complete")
             except Exception as e:
-                logger.warning(f"Failed to refine transcript with LLM: {e}. Using raw transcript.")
+                logger.warning(f"Failed to refine transcript with LLM: {e}")
 
         if output_file:
             file_io.write_to_file(serializable_data, output_file)
@@ -478,32 +155,69 @@ def extract_transcript(
         raise
 
 
+def _apply_external_translation(segments: list[dict] | list[Any], target_lang: str) -> list[dict]:
+    """Helper to translate segments using DeepL or Local LLM."""
+    # 1. Prepare text list
+    texts = []
+    for s in segments:
+        if isinstance(s, dict): texts.append(s.get("text", ""))
+        else: texts.append(getattr(s, "text", ""))
+
+    translated_texts = None
+
+    # 2. Try DeepL
+    deepl_key = os.getenv("DEEPL_API_KEY")
+    if deepl_key:
+        try:
+            from src.core.services.translation import DeepLAdapter
+            deepl = DeepLAdapter(deepl_key)
+            translated_texts = deepl.translate_batch(texts, target_lang.upper())
+        except Exception as e:
+            logger.warning(f"DeepL translation failed: {e}")
+
+    # 3. Try Local LLM
+    if not translated_texts:
+        try:
+            from src.core.services.translation import LlamaCppTranslator
+            translator = LlamaCppTranslator()
+            # Batch to avoid overhead
+            translated_texts = translator.translate_batch(texts, target_lang.upper())
+        except Exception as e:
+            logger.warning(f"Local LLM translation failed: {e}")
+
+    # 4. Reconstruct segments
+    if translated_texts and len(translated_texts) == len(segments):
+        new_segments = []
+        for i, orig in enumerate(segments):
+            # Normalize origin to dict for easier handling
+            if isinstance(orig, dict):
+                start = orig.get("start", 0.0)
+                dur = orig.get("duration", 0.0)
+            else:
+                start = getattr(orig, "start", 0.0)
+                dur = getattr(orig, "duration", 0.0)
+
+            new_segments.append({
+                "text": translated_texts[i],
+                "start": start,
+                "duration": dur
+            })
+        return new_segments
+
+    return segments # Return original if failed
+
+
 def extract_video_id(url: str) -> str:
-    """Extract YouTube video ID from URL or return ID if already provided.
-
-    Args:
-        url: YouTube URL or video ID.
-
-    Returns:
-        11-character YouTube video ID.
-
-    Raises:
-        ValueError: If no valid video ID found.
-    """
-
     import re
-
     patterns = [
         r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})",
         r"(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})",
         r"([a-zA-Z0-9_-]{11})",
     ]
-
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
             return match.group(1)
-
     raise ValueError("Invalid YouTube URL or ID")
 
 
